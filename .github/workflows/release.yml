@@ -1,0 +1,35 @@
+# 推送 v* 标签（如 v1.1.1）时打包插件并发布到 GitHub Release
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 校验标签与 plugin.json 版本一致
+        run: |
+          VERSION=$(node -p "require('./plugin.json').version")
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::标签 $GITHUB_REF_NAME 与 plugin.json 版本 $VERSION 不一致"
+            exit 1
+          fi
+
+      - name: 打包
+        run: node scripts/pack.js
+
+      - name: 发布 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.zip --title "$GITHUB_REF_NAME" --generate-notes

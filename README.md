@@ -19,17 +19,29 @@ src/icons.js       图标
 src/style.css      样式（跟随 ZTools 深浅色）
 dev/               浏览器预览（模拟 ztools API），不打包
 scripts/pack.js    打包脚本
+.github/workflows/ 推送 v* 标签时自动打包并发布 Release
 ```
 
-## 打包与安装
+## 安装
+
+从 [Releases](https://github.com/Waverly-W/ztools-clipboard/releases) 下载 `super-clipboard-v<版本>.zip`，在 ZTools 插件管理页面选择「本地安装」，选中这个 zip 即可。
+
+## 打包
 
 ```bash
 node scripts/pack.js
 ```
 
-生成 `dist/super-clipboard-v<版本>.zip`（无需安装依赖）。在 ZTools 插件管理页面选择「本地安装」，选中这个 zip 即可。ZTools 本地安装支持 `.zpx` 和 `.zip`，zip 需要 `plugin.json` 位于压缩包根目录，脚本已按此打包。
+生成 `dist/super-clipboard-v<版本>.zip`（无需安装依赖，`dist/` 不提交到仓库）。ZTools 本地安装支持 `.zpx` 和 `.zip`，zip 需要 `plugin.json` 位于压缩包根目录，脚本已按此打包。压缩包只包含 `plugin.json`、`preload.js`、`lib/`、`index.html`、`src/`、`logo.png`。
 
-压缩包只包含 `plugin.json`、`preload.js`、`lib/`、`index.html`、`src/`、`logo.png`。修改代码后更新 `plugin.json` 的 `version` 再重新打包安装。
+## 发布
+
+1. 修改 `plugin.json` 的 `version` 并提交。
+2. 推送同名标签，GitHub Actions（`.github/workflows/release.yml`）会校验版本、打包并发布到 Release：
+
+```bash
+git tag v1.1.1 && git push origin v1.1.1
+```
 
 发布前把 `src/settings.js` 里 `LINKS` 的地址换成实际的作者主页、帮助文档、开源仓库和赞赏页。
 

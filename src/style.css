@@ -454,9 +454,17 @@ code {
 
 .tokens {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 60px;
+  overflow: auto;
+  user-select: none;
+}
+
+.token-line {
+  display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  overflow: auto;
 }
 
 .token {

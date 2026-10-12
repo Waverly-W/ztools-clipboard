@@ -359,12 +359,38 @@ function joinTokens(tokens) {
   return out
 }
 
-function tokenize(text) {
+// 返回 [{ text, start }]，start 为在 text 中的位置
+function segmentWords(text, offset = 0) {
   if (typeof Intl !== 'undefined' && Intl.Segmenter) {
     const seg = new Intl.Segmenter('zh-CN', { granularity: 'word' })
-    return [...seg.segment(text)].filter((s) => s.isWordLike).map((s) => s.segment)
+    return [...seg.segment(text)].filter((s) => s.isWordLike).map((s) => ({ text: s.segment, start: offset + s.index }))
   }
-  return text.split(/[\s,.;:!?，。；：！？、"'“”‘’()（）[\]【】<>《》]+/).filter(Boolean)
+  return [...text.matchAll(/[^\s,.;:!?，。；：！？、"'“”‘’()（）[\]【】<>《》]+/g)].map((m) => ({ text: m[0], start: offset + m.index }))
+}
+
+// 网址、邮箱、带分隔符的数字（电话、日期、金额）、带点或横线的英文数字串保持完整
+const WHOLE_TOKEN = /https?:\/\/[^\s，。、；"'<>（）()]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\d+(?:[-.:/,]\d+)+|[A-Za-z0-9_]+(?:[-.][A-Za-z0-9_]+)+/g
+
+function tokenizeLine(line) {
+  const tokens = []
+  let last = 0
+  for (const m of line.matchAll(WHOLE_TOKEN)) {
+    tokens.push(...segmentWords(line.slice(last, m.index), last), { text: m[0], start: m.index })
+    last = m.index + m[0].length
+  }
+  tokens.push(...segmentWords(line.slice(last), last))
+  return tokens
+}
+
+// 按行分词，返回 [{ text, line, start, end }]
+function tokenize(text, limit = 2000) {
+  const tokens = []
+  text.split(/\r?\n/).forEach((line, i) => {
+    for (const t of tokenizeLine(line)) {
+      if (tokens.length < limit) tokens.push({ text: t.text, line: i, start: t.start, end: t.start + t.text.length })
+    }
+  })
+  return tokens
 }
 
 function parseTags(str) {
@@ -571,49 +597,104 @@ const App = {
   },
 
   split(item) {
-    const tokens = tokenize(item.text).slice(0, 1000)
+    App.splitText(item.text, { title: '分词' })
+  },
+
+  // 分词选择：点击选词，Shift+点击选范围，双击选整行；Enter 粘贴所选，Ctrl+C 复制所选
+  splitText(text, { title = '分词' } = {}) {
+    $('#toast').classList.add('hidden')
+    const tokens = tokenize(text)
+    const sourceLines = text.split(/\r?\n/)
+    const lines = []
+    tokens.forEach((t, i) => {
+      if (!lines.length || lines[lines.length - 1].line !== t.line) lines.push({ line: t.line, html: '' })
+      lines[lines.length - 1].html += `<span class="token" data-i="${i}">${esc(t.text)}</span>`
+    })
     const picked = new Set()
+    let anchor = -1
     openModal(
-      `<div class="modal-head">分词 · 点击选择词语</div>
-       <div class="tokens">${tokens.map((t, i) => `<span class="token" data-i="${i}">${esc(t)}</span>`).join('')}</div>
+      `<div class="modal-head">${esc(title)} <span class="muted">· 点击选词，Shift+点击选范围，双击选整行</span></div>
+       <div class="tokens">${lines.map((l) => `<div class="token-line">${l.html}</div>`).join('') || '<span class="muted">没有可选的词语</span>'}</div>
        <div class="modal-foot">
          <span class="muted" id="split-count">已选 0 个</span>
          <button data-act="all">全选</button><button data-act="none">清空</button>
+         <button data-act="edit">编辑全文</button><button data-act="copy-all">复制全文</button>
          <button data-act="copy">复制所选</button><button class="primary" data-act="paste">粘贴所选</button>
        </div>`,
-      null,
+      (e) => {
+        if (e.key === 'Enter') finish('paste')
+        else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && !String(getSelection())) finish('copy')
+      },
       'wide'
     )
-    const pickedText = () => joinTokens([...picked].sort((a, b) => a - b).map((i) => tokens[i]))
+    // 不同行之间换行；同一行内相邻的词保留原文中的空格，其余按分词规则拼接
+    const pickedText = () => {
+      let out = ''
+      let prev = null
+      for (const i of [...picked].sort((a, b) => a - b)) {
+        const t = tokens[i]
+        if (prev && t.line !== prev.line) out += '\n'
+        else if (prev && i === prev.index + 1 && /\s/.test(sourceLines[t.line].slice(prev.end, t.start))) out += ' '
+        else if (prev && /[A-Za-z0-9]$/.test(out) && /^[A-Za-z0-9]/.test(t.text)) out += ' '
+        out += t.text
+        prev = { ...t, index: i }
+      }
+      return out
+    }
     const update = () => {
       document.querySelectorAll('.token').forEach((el) => el.classList.toggle('on', picked.has(+el.dataset.i)))
       $('#split-count').textContent = `已选 ${picked.size} 个`
     }
-    $('#modal-body').onclick = (e) => {
+    const finish = (act) => {
+      if (act === 'copy-all') {
+        closeModal()
+        services.copyText(text)
+        return toast('已复制全文')
+      }
+      if (act === 'edit') return App.showResult(title, text)
+      if (!picked.size) return toast('请先选择词语')
+      const result = pickedText()
+      closeModal()
+      if (act === 'copy') {
+        services.copyText(result)
+        toast('已复制')
+      } else {
+        services.pasteText(result)
+      }
+    }
+    const body = $('#modal-body')
+    body.onclick = (e) => {
       const tok = e.target.closest('.token')
       if (tok) {
         const i = +tok.dataset.i
-        picked.has(i) ? picked.delete(i) : picked.add(i)
-        update()
+        if (e.shiftKey && anchor >= 0) {
+          for (let k = Math.min(anchor, i); k <= Math.max(anchor, i); k++) picked.add(k)
+        } else {
+          picked.has(i) ? picked.delete(i) : picked.add(i)
+          anchor = i
+        }
+        return update()
       }
       const act = e.target.closest('[data-act]')
       if (!act) return
       const a = act.dataset.act
       if (a === 'all') tokens.forEach((_, i) => picked.add(i))
-      if (a === 'none') picked.clear()
-      if (a === 'copy' || a === 'paste') {
-        if (!picked.size) return toast('请先选择词语')
-        const text = pickedText()
-        closeModal()
-        if (a === 'copy') {
-          services.copyText(text)
-          toast('已复制')
-        } else {
-          services.pasteText(text)
-        }
-        return
-      }
+      else if (a === 'none') picked.clear()
+      else return finish(a)
       update()
+    }
+    body.ondblclick = (e) => {
+      const tok = e.target.closest('.token')
+      if (!tok) return
+      const line = tokens[+tok.dataset.i].line
+      const indexes = tokens.map((t, i) => (t.line === line ? i : -1)).filter((i) => i >= 0)
+      const all = indexes.every((i) => picked.has(i))
+      indexes.forEach((i) => (all ? picked.delete(i) : picked.add(i)))
+      update()
+    }
+    // Shift+点击时不选中页面文字
+    body.onmousedown = (e) => {
+      if (e.shiftKey && e.target.closest('.token')) e.preventDefault()
     }
   }
 }

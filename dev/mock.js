@@ -65,7 +65,7 @@
     chooseDataDir: () => null, openDataDir: () => log('openDataDir'),
     listenerStatus: () => ({ path: '/Users/me/.ztools-clipboard/bin/clipboard-listener', installed: false, mode: 'polling' }),
     restartListener: () => 'polling', openListenerDir: () => log('openListenerDir'),
-    systemOcr: async (i) => (log('systemOcr', i.id), '系统识别的文字'), systemOcrName: () => 'macOS 系统文字识别',
+    systemOcr: async (i) => (log('systemOcr', i.id), '订单号：2024-1012-8848 下单时间 2024/10/12 15:30\n联系电话 138-1234-5678 邮箱 test@example.com\n官网 https://ztools.example/doc?id=1 实付 1,299.00 元'), systemOcrName: () => 'macOS 系统文字识别',
     detectSystemOcr: async () => ({ ok: true, message: 'macOS 系统文字识别可用' }),
     decodeQr: (i) => (log('decodeQr', i.id), 'https://example.com/qr'),
     uploadImage: async (i) => (log('uploadImage', i.id, config.imageHost.mode), 'https://img.example/c.png'),

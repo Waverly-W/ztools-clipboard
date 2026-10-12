@@ -9,6 +9,8 @@ plugin.json        插件配置
 preload.js         Node/Electron 能力入口，暴露 window.services
 lib/store.js       记录存储（data.json + images/）、去重、过期与上限清理
 lib/clipboard.js   读取剪贴板、监听变化
+lib/handlers.js    内置操作：系统 OCR、二维码、图床、百度识图、查找其他插件指令
+lib/vendor/        jsQR（二维码识别）
 index.html         主界面
 src/app.js         列表、搜索、多选、快捷键、弹窗
 src/actions.js     内置操作与自定义操作
@@ -52,18 +54,31 @@ node scripts/pack.js
 
 ## 自定义操作
 
-在设置中以 JSON 编辑，例如：
+在设置中逐项配置，每个操作都有「检测」按钮（也可「全部检测」），高级用户可展开「以 JSON 编辑」。条目匹配适用类型（文字还需匹配正则）时操作才会出现。
 
-```json
-{ "id": "color", "name": "识别颜色值", "types": ["text"], "match": "^#[0-9a-f]{6}$", "redirect": "颜色" }
-```
+处理方式（`handler`）：
 
-- `provider`：`"ocr"` 或 `"translation"`，调用 ZTools 中已启用的 OCR / 翻译服务（`ztools.ocr` / `ztools.translate`），结果在弹窗中显示，可修改后复制或粘贴。ZTools 本身不带 OCR 引擎，需要先安装提供 OCR 的插件并在 ZTools 设置中启用。
-- `redirect`：转给的指令，`"指令名"` 或 `["插件名", "指令名"]`；图片会先写入剪贴板，再以 Data URL 传递。
-- `url`：打开网址，`{text}` 替换为内容。
-- `provider`、`redirect`、`url` 三选一；只有类型匹配（文字还需匹配 `match`）时才显示。
+| 处理方式 | 说明 | 检测内容 |
+| --- | --- | --- |
+| `builtin` 内置功能 | 见下表，插件自己完成 | 依赖的服务是否可用 |
+| `provider` ZTools 服务 | 调用 ZTools 中已启用的翻译 / OCR 服务（由其他插件提供）；翻译未启用服务时打开 `url` | 是否有已启用的服务 |
+| `redirect` 转给插件指令 | `"指令名"` 或 `["插件名", "指令名"]` | 在 `~/.ztools/plugins` 已安装插件中查找该指令 |
+| `url` 打开网址 | `{text}` 替换为内容 | 网址格式 |
 
-默认的「OCR 文字识别」「翻译」使用 `provider`；其余默认操作的指令名（统计字数、颜色、上传到图床、百度识图、识别二维码、备忘快贴）需与已安装插件的实际指令一致，可在设置中修改。
+内置功能：
+
+| 功能 | 实现 |
+| --- | --- |
+| 统计字数 | 本地统计字符、汉字、英文单词、数字、标点、行数、段落 |
+| 识别颜色值 | 本地解析，显示色块和 HEX / RGB / HSL，点击复制 |
+| 识别二维码 | 本地识别（内置 jsQR，Apache-2.0），网址可直接打开 |
+| OCR 文字识别 | 结果在分词界面中按行显示，网址、邮箱、电话、日期、金额等保持完整，点击选词、Shift+点击选范围、双击选整行，Enter 粘贴所选、Ctrl+C 复制所选，也可复制或编辑全文。设置中选择识别方式：自动（默认，优先 ZTools OCR 服务，没有时用系统识别）/ 只用 ZTools 服务 / 只用系统识别。系统识别：macOS 用 Vision（10.15+），Windows 用 Windows.Media.Ocr（10+，需安装对应语言的 OCR 包），Linux 用 tesseract |
+| 上传图床 | PicGo / PicList 本地服务（需开启 Server，默认 `http://127.0.0.1:36677/upload`），或自定义接口（multipart 上传，可配置文件字段名、请求头、返回 JSON 中图片地址的路径）。上传后按设置的格式（地址 / Markdown / HTML）复制 |
+| 百度识图 | 在 ZTools 内置浏览器中打开百度识图并自动选择图片，由页面完成上传 |
+
+转给插件指令时遵循 ZTools 的跳转规则：带内容跳转只能进入 `regex` / `over` 类型的指令；目标是普通文字指令或内容是图片 / 文件时，会先把内容复制到剪贴板再打开插件。
+
+从 1.0.x 升级时，未修改过的默认操作会自动换成新的实现，自己改过或新增的操作保持不变。
 
 ## 快捷键
 

@@ -94,7 +94,13 @@ async function runOcr(item) {
     }
   }
   if (text === undefined) text = await services.systemOcr(item)
-  App.showResult('OCR 文字识别', text)
+  showOcrText(text)
+}
+
+// OCR 结果用分词界面展示，方便挑选复制
+function showOcrText(text, title = 'OCR 文字识别') {
+  if (!text || !text.trim()) return App.toast('未识别到文字')
+  App.splitText(text, { title })
 }
 
 async function detectOcr() {
@@ -197,7 +203,9 @@ const HANDLERS = {
       }
       App.toast(def.provider === 'ocr' ? '正在识别…' : '正在翻译…')
       const result = def.provider === 'ocr' ? await window.ztools.ocr(services.imageUrl(item)) : await window.ztools.translate(item.text)
-      App.showResult(def.name, (result && result.text) || '')
+      const text = (result && result.text) || ''
+      if (def.provider === 'ocr') showOcrText(text, def.name)
+      else App.showResult(def.name, text)
     },
     detect: async (def) => {
       const label = PROVIDER_LABELS[def.provider]

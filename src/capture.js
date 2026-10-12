@@ -683,26 +683,49 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('error', (e) => host.send('error', { message: `${e.message} @${e.filename}:${e.lineno}` }))
 window.addEventListener('unhandledrejection', (e) => host.send('error', { message: String((e.reason && e.reason.stack) || e.reason) }))
 
+function pixelsCanvas({ width, height, data }) {
+  const c = document.createElement('canvas')
+  c.width = width
+  c.height = height
+  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data), width, height), 0, 0)
+  return c
+}
+
 host.on(async (msg) => {
+  // 主页面算出的清晰图片：尺寸相同，替换后重画已完成的标注
+  if (msg.type === 'base') {
+    if (!S.base || msg.pixels.width !== S.natW || msg.pixels.height !== S.natH) return
+    S.base = pixelsCanvas(msg.pixels)
+    rebuildLayer()
+    render()
+    return
+  }
   if (msg.type !== 'init') return
   try {
     if (zt().isDarkColors()) document.body.dataset.theme = 'dark'
   } catch {}
-  S.base = await loadImage(msg.image)
-  S.natW = S.base.naturalWidth
-  S.natH = S.base.naturalHeight
-  // 图片像素密度高于屏幕时先高质量缩小到屏幕实际像素，避免显示时再被浏览器缩放而发虚
-  if (msg.target && S.natW > msg.target.width * 1.05) {
-    const sharp = document.createElement('canvas')
-    sharp.width = msg.target.width
-    sharp.height = msg.target.height
-    const sctx = sharp.getContext('2d')
-    sctx.imageSmoothingEnabled = true
-    sctx.imageSmoothingQuality = 'high'
-    sctx.drawImage(S.base, 0, 0, sharp.width, sharp.height)
-    S.base = sharp
-    S.natW = sharp.width
-    S.natH = sharp.height
+  if (msg.pixels) {
+    // 主页面已还原为屏幕实际像素的截图，直接以像素数据传入
+    S.base = pixelsCanvas(msg.pixels)
+    S.natW = msg.pixels.width
+    S.natH = msg.pixels.height
+  } else {
+    S.base = await loadImage(msg.image)
+    S.natW = S.base.naturalWidth
+    S.natH = S.base.naturalHeight
+    // 图片像素密度高于屏幕时先用 GPU 快速缩小到屏幕实际像素显示，主页面算出更清晰的结果后会再替换
+    if (msg.target && S.natW > msg.target.width * 1.05) {
+      const fast = document.createElement('canvas')
+      fast.width = msg.target.width
+      fast.height = msg.target.height
+      const fctx = fast.getContext('2d')
+      fctx.imageSmoothingEnabled = true
+      fctx.imageSmoothingQuality = 'high'
+      fctx.drawImage(S.base, 0, 0, fast.width, fast.height)
+      S.base = fast
+      S.natW = fast.width
+      S.natH = fast.height
+    }
   }
   canvas.width = overlay.width = S.natW
   canvas.height = overlay.height = S.natH

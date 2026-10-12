@@ -31,7 +31,7 @@
         document.documentElement.style.height = b.height + 'px'
       }
     },
-    on(fn) { handler = fn },
+    on(fn) { handler = fn; window.__shotHandler = fn },
     setWindowId(id) { window.__shot.winId = id },
     windowOp(op, ...args) { this.send('win', { op, args }) }
   }

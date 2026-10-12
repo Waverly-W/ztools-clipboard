@@ -39,10 +39,24 @@
     onThemeChange() {}, onPluginEnter(fn) { window.__enter = fn; setTimeout(() => fn({ code: 'clipboard' }), 0) },
     // 截图相关（window.__wins 记录创建的窗口及收到的消息）
     hideMainWindow: async () => log('hideMainWindow'), showMainWindow: async () => log('showMainWindow'),
-    screenCapture: async (cb) => { if (window.__captureFail) throw new Error(window.__captureFail); await new Promise((r) => setTimeout(r, 10)); if (window.__captureEmpty) return cb('', undefined); const c = document.createElement('canvas'); c.width = 800; c.height = 400; const g = c.getContext('2d')
-      // 每个 2×2 块的四个像素红色通道为 0、255、100、50，平均值应为 101
-      const d = g.createImageData(800, 400); for (let y = 0; y < 400; y++) for (let x = 0; x < 800; x++) { const o = (y * 800 + x) * 4; d.data[o] = [[0, 255], [100, 50]][y % 2][x % 2]; d.data[o + 1] = 128; d.data[o + 2] = (x >> 1) % 256; d.data[o + 3] = 255 }
-      g.putImageData(d, 0, 0); cb(c.toDataURL(), { x: 100, y: 50, width: 400, height: 200 }) },
+    // window.__captureMode = 'bilinear'：返回把已知 1× 图片双线性放大 2 倍的截图（模拟 ZTools），原图存于 window.__source
+    screenCapture: async (cb) => {
+      if (window.__captureFail) throw new Error(window.__captureFail)
+      await new Promise((r) => setTimeout(r, window.__captureDelay || 10))
+      if (window.__captureEmpty) return cb('', undefined)
+      const W = 400, H = 200, c = document.createElement('canvas'); c.width = W * 2; c.height = H * 2; const g = c.getContext('2d')
+      const d = g.createImageData(W * 2, H * 2)
+      if (window.__captureMode === 'bilinear') {
+        const S = new Uint8ClampedArray(W * H * 3); for (let i = 0; i < S.length; i++) S[i] = (i * 2654435761 >>> 24) & 255
+        window.__source = S
+        const at = (x, y, ch) => S[(Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))) * 3 + ch]
+        for (let Y = 0; Y < H * 2; Y++) for (let X = 0; X < W * 2; X++) { const sx = (X + 0.5) / 2 - 0.5, sy = (Y + 0.5) / 2 - 0.5, x0 = Math.floor(sx), y0 = Math.floor(sy), fx = sx - x0, fy = sy - y0; for (let ch = 0; ch < 3; ch++) d.data[(Y * W * 2 + X) * 4 + ch] = Math.round((at(x0, y0, ch) * (1 - fx) + at(x0 + 1, y0, ch) * fx) * (1 - fy) + (at(x0, y0 + 1, ch) * (1 - fx) + at(x0 + 1, y0 + 1, ch) * fx) * fy); d.data[(Y * W * 2 + X) * 4 + 3] = 255 }
+      } else {
+        // 每个 2×2 块的四个像素红色通道为 0、255、100、50（不符合双线性模型）
+        for (let y = 0; y < H * 2; y++) for (let x = 0; x < W * 2; x++) { const o = (y * W * 2 + x) * 4; d.data[o] = [[0, 255], [100, 50]][y % 2][x % 2]; d.data[o + 1] = 128; d.data[o + 2] = (x >> 1) % 256; d.data[o + 3] = 255 }
+      }
+      g.putImageData(d, 0, 0); cb(c.toDataURL(), { x: 100, y: 50, width: W, height: H })
+    },
     showNotification: (m) => log('showNotification', m), isMacOS: () => true,
     getDisplayNearestPoint: () => ({ scaleFactor: window.__sf || 2, workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
     getCursorScreenPoint: () => ({ x: 10, y: 10 }), screenToDipPoint: (p) => p,
@@ -54,7 +68,7 @@
       const w = { url, options, calls: [], received: [] }
       window.__wins.push(w)
       const method = (name) => (...args) => w.calls.push([name, ...args])
-      return { id, show: method('show'), focus: method('focus'), hide: method('hide'), close: method('close'), setBounds: method('setBounds'), setOpacity: method('setOpacity'), setAlwaysOnTop: method('setAlwaysOnTop'), webContents: { id, send: (ch, msg) => w.received.push([ch, msg.type, msg.mode, msg.rect]) } }
+      return { id, show: method('show'), focus: method('focus'), hide: method('hide'), close: method('close'), setBounds: method('setBounds'), setOpacity: method('setOpacity'), setAlwaysOnTop: method('setAlwaysOnTop'), webContents: { id, send: (ch, msg) => { w.received.push([ch, msg.type, msg.mode, msg.rect]); w.messages = (w.messages || []).concat([msg]); if (msg.type === 'init') w.lastInit = msg } } }
     },
     removeSubInput() {}, subInputBlur() {},
     dbStorage: { getItem: (k) => store[k] ?? null, setItem: (k, v) => (store[k] = v) },
@@ -88,7 +102,7 @@
     debugLog: (...a) => (window.__debug = window.__debug || []).push(a),
     addImageData: (png) => { log('addImageData', png.slice(0, 22)); let it = items.find((i) => i.id === 'shot'); if (!it) { it = { id: 'shot', type: 'image', hash: 'shot', image: 'shot.png', width: 800, height: 400 }; items.unshift(it) } it.time = Date.now(); items.sort((a, b) => b.time - a.time); emit(); return it },
     saveImageData: (png) => (log('saveImageData', png.slice(0, 22)), '/tmp/shot.png'),
-    replaceImageData: (oldPng, newPng) => { log('replaceImageData'); window.__sharp = newPng; return window.services.addImageData(newPng) },
+    replaceImageData: (oldPng, newPng, time) => { log('replaceImageData', time); window.__sharp = newPng; return window.services.addImageData(newPng) },
     systemOcr: async (i) => (log('systemOcr', i.id), '订单号：2024-1012-8848 下单时间 2024/10/12 15:30\n联系电话 138-1234-5678 邮箱 test@example.com\n官网 https://ztools.example/doc?id=1 实付 1,299.00 元'), systemOcrName: () => 'macOS 系统文字识别',
     detectSystemOcr: async () => ({ ok: true, message: 'macOS 系统文字识别可用' }),
     decodeQr: (i) => (log('decodeQr', i.id), 'https://example.com/qr'),

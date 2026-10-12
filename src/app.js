@@ -909,7 +909,7 @@ function onEnter(param) {
   const after = SCREENSHOT_FEATURES[param && param.code]
   if (after) {
     services.debugLog('enter', param)
-    Shot.capture(after)
+    Shot.capture(after, param)
     return
   }
   services.sync()

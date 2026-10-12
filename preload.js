@@ -280,18 +280,18 @@ window.services = {
   onShotMessage: (fn) => {
     require('electron').ipcRenderer.on('shot', (event, msg) => fn(event.senderId, msg))
   },
-  // 把图片（Data URL）写入历史，已存在时挪到最前面
-  addImageData: (dataUrl) => {
+  // 把图片（Data URL）写入历史，已存在时挪到最前面；time 指定记录时间
+  addImageData: (dataUrl, time) => {
     const { nativeImage } = require('electron')
     const img = nativeImage.createFromDataURL(dataUrl)
     if (img.isEmpty()) return null
     const { width, height } = img.getSize()
-    const item = store.add({ type: 'image', png: img.toPNG(), bitmapHash: md5(img.toBitmap()), width, height })
+    const item = store.add({ type: 'image', png: img.toPNG(), bitmapHash: md5(img.toBitmap()), width, height }, { time })
     cleanup()
     return item
   },
-  // 用清晰版截图替换历史中 ZTools 原始截图（已收藏的保留）
-  replaceImageData: (oldDataUrl, newDataUrl) => {
+  // 用清晰版截图替换历史中 ZTools 原始截图（已收藏的保留）；time 为截图时间，保证历史顺序
+  replaceImageData: (oldDataUrl, newDataUrl, time) => {
     const { nativeImage } = require('electron')
     const old = nativeImage.createFromDataURL(oldDataUrl)
     if (!old.isEmpty()) {
@@ -299,7 +299,7 @@ window.services = {
       const stale = store.items.filter((i) => i.hash === hash && !i.fav).map((i) => i.id)
       if (stale.length) store.remove(stale)
     }
-    return window.services.addImageData(newDataUrl)
+    return window.services.addImageData(newDataUrl, time)
   },
   saveImageData: (dataUrl) => {
     const now = new Date()

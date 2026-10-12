@@ -4,37 +4,18 @@ const SHOT_WINDOW_OPS = new Set(['setBounds', 'setOpacity', 'setAlwaysOnTop', 'f
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-function loadImg(src) {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = () => resolve(null)
-    img.src = src
-  })
-}
-
 async function imageSize(src) {
-  const img = await loadImg(src)
+  const size = pngSize(src)
+  if (size) return size
+  const img = await loadImageElement(src)
   return img && { width: img.naturalWidth, height: img.naturalHeight }
 }
 
-// 高质量缩小。整数倍（如 2:1）时每个目标像素正好取源图 r×r 区域的平均值，与面积平均一致
-async function downscaleImage(src, w, h) {
-  const img = await loadImg(src)
-  if (!img) return null
-  const canvas = document.createElement('canvas')
-  canvas.width = w
-  canvas.height = h
-  const ctx = canvas.getContext('2d')
-  ctx.imageSmoothingEnabled = true
-  ctx.imageSmoothingQuality = 'high'
-  ctx.drawImage(img, 0, 0, w, h)
-  return canvas.toDataURL('image/png')
-}
-
 const Shot = {
-  windows: new Map(), // webContents.id → { win, init }
+  windows: new Map(), // webContents.id → { win, ready, init, history }
+  spare: null, // 预先加载好的隐藏截图窗口，截图完成后直接使用，省去创建窗口的时间
   pendingFocus: null, // 跳转剪贴板后要选中的条目 { id, ocr }
+  copyEpoch: 0, // 截图窗口每次复制时加一，用于判断剪贴板是否已被用户的复制覆盖
 
   init() {
     services.onShotMessage((id, msg) => {
@@ -47,13 +28,17 @@ const Shot = {
   },
 
   // after: edit 进入标注；pin 直接贴图；ocr 直接识别文字
-  async capture(after = 'edit') {
+  // param 为插件进入参数，用来判断是否从搜索框启动（主窗口可见）
+  async capture(after = 'edit', param = {}) {
     const log = services.debugLog
     const zt = window.ztools
     try {
-      log('capture:start', { after, hidden: document.hidden, hasApi: typeof zt.screenCapture })
-      if (!document.hidden) {
-        // 从搜索框启动时先隐藏主窗口，等窗口完全消失再截图
+      const fromSearch = !!(param.payload || (param.inputState && param.inputState.searchQuery))
+      log('capture:start', { after, fromSearch })
+      // 用户框选期间提前加载截图窗口
+      if (after !== 'ocr') this.ensureSpare()
+      if (fromSearch) {
+        // 从搜索框启动时主窗口可见：先隐藏，等窗口完全消失再截图。快捷键启动时主窗口本就隐藏，无需等待
         await zt.hideMainWindow()
         await sleep(250)
       }
@@ -63,7 +48,8 @@ const Shot = {
       await zt.screenCapture((image, bounds) => {
         result = { image, bounds }
       })
-      const ms = Date.now() - started
+      const captureTime = Date.now()
+      const ms = captureTime - started
       const image = result && result.image
       log('capture:result', { ms, hasImage: !!image, length: image ? image.length : 0, bounds: result && result.bounds })
       if (!image) {
@@ -75,18 +61,45 @@ const Shot = {
       if (!size) return log('capture:bad-image')
       const rect = this.captureRect(size, result.bounds) || this.centerRect(size).rect
       const target = this.sharpTarget(size, rect)
-      if (after === 'ocr') return this.gotoClipboard((target && (await this.sharpen(image, size, target))) || image, true)
-      log('capture:open', { size, rect, target })
-      // 截图窗口自己按 target 缩小显示，先打开窗口；剪贴板和历史中的清晰版随后生成
-      this.open(image, rect, after === 'pin' ? 'pin' : 'edit', { width: rect.width, height: rect.height }, target)
-      if (target) await this.sharpen(image, size, target)
+      const epoch = this.copyEpoch
+
+      if (after === 'ocr') {
+        const pixels = target ? await this.sharpenWithLog(image, size, target, captureTime) : null
+        return this.gotoClipboard(pixels ? this.saveSharpened(image, pixels, captureTime, epoch) : image, true)
+      }
+      // 先打开窗口：窗口按 target 用 GPU 快速缩小显示；主页面随后反推出清晰像素再替换进去
+      const id = this.open({ image, target, rect, mode: after === 'pin' ? 'pin' : 'edit', baseSize: { width: rect.width, height: rect.height } })
+      if (!target) return
+      const pixels = await this.sharpenWithLog(image, size, target, captureTime)
+      const entry = this.windows.get(id)
+      if (!entry) return this.saveSharpened(image, pixels, captureTime, epoch) // 窗口已关闭
+      // 反推结果比快速缩放更清晰，替换窗口中的图片；快速缩放与窗口显示的一致，无需替换
+      if (pixels.method === 'invert') this.updateBase(entry, pixels)
+      // 清晰版写入剪贴板和历史放到窗口显示之后，避免拖慢窗口出现
+      entry.history = { image, pixels, time: captureTime, epoch }
+      if (entry.shown) this.flushHistory(entry)
     } catch (e) {
       log('capture:error', String((e && e.stack) || e))
       this.notifyFailure('截图失败：' + ((e && e.message) || e))
     }
   },
 
-  // 混合缩放比例的多屏环境下，ZTools 可能按高倍率放大低倍率屏幕的截图，导致发虚。
+  async sharpenWithLog(image, size, target, captureTime) {
+    const pixels = await sharpenScreenshot(image, size, target)
+    services.debugLog('capture:sharpen', { from: size, to: target, method: pixels.method, residual: pixels.residual, ms: Date.now() - captureTime })
+    return pixels
+  },
+
+  // 把清晰像素交给截图窗口：初始化消息还没发出时直接放进去，否则单独发送替换
+  updateBase(entry, pixels) {
+    if (entry.init) {
+      entry.init.pixels = pixels
+      entry.init.image = null
+    } else {
+      entry.win.webContents.send('shot', { type: 'base', pixels: { width: pixels.width, height: pixels.height, data: pixels.data } })
+    }
+  },
+
   // 图片像素密度高于所在屏幕时返回屏幕实际像素尺寸，否则返回 null
   sharpTarget(size, rect) {
     const center = { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
@@ -95,15 +108,15 @@ const Shot = {
     return size.width > target.width * 1.05 ? target : null
   },
 
-  // 生成清晰版并替换剪贴板与历史中的原始截图
-  async sharpen(image, size, target) {
+  // 用清晰版替换历史中的 ZTools 原始截图，并放回截图时间对应的位置；
+  // 期间用户已经复制了别的内容（如标注后的图）时，不再覆盖剪贴板
+  saveSharpened(image, pixels, time, epoch) {
     const started = Date.now()
-    const sharp = await downscaleImage(image, target.width, target.height)
-    if (!sharp) return null
-    window.ztools.copyImage(sharp)
-    services.replaceImageData(image, sharp)
-    services.debugLog('capture:sharpen', { from: size, to: target, ms: Date.now() - started })
-    return sharp
+    const png = pixelsToDataUrl(pixels)
+    if (epoch === this.copyEpoch) window.ztools.copyImage(png)
+    services.replaceImageData(image, png, time)
+    services.debugLog('capture:history', { ms: Date.now() - started, copied: epoch === this.copyEpoch })
+    return png
   },
 
   notifyFailure(title) {
@@ -118,7 +131,7 @@ const Shot = {
     const image = services.imageUrl(item)
     const { rect, base } = this.centerRect({ width: item.width, height: item.height })
     await window.ztools.hideMainWindow()
-    this.open(image, rect, mode, base)
+    this.open({ image, rect, mode, baseSize: base })
   },
 
   // 截图区域转为屏幕坐标（DIP）。Windows 高分屏下区域可能是物理像素，此时图片与区域等宽
@@ -145,13 +158,13 @@ const Shot = {
     return { rect: { x: wa.x + (wa.width - width) / 2, y: wa.y + (wa.height - height) / 2, width, height }, base }
   },
 
-  // target：显示用的像素尺寸，图片更大时截图窗口会先高质量缩小
-  open(image, rect, mode, baseSize, target = null) {
+  // 创建隐藏的截图窗口；初始位置不重要，窗口收到 init 后自行布局再显示
+  createWindow() {
     const win = window.ztools.createBrowserWindow('capture.html', {
-      x: Math.round(rect.x),
-      y: Math.round(rect.y),
-      width: Math.max(1, Math.round(rect.width)),
-      height: Math.max(1, Math.round(rect.height)),
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
       show: false,
       frame: false,
       transparent: true,
@@ -163,18 +176,52 @@ const Shot = {
       fullscreenable: false,
       skipTaskbar: true,
       alwaysOnTop: true,
-      title: mode === 'pin' ? '贴图' : '截图',
+      title: '截图',
       webPreferences: { preload: 'capture-preload.js' }
     })
-    this.windows.set(win.webContents.id, { win, init: { image, rect, mode, baseSize, target, winId: win.id } })
-    services.debugLog('window:created', { id: win.webContents.id, mode })
+    const id = win.webContents.id
+    this.windows.set(id, { win, ready: false, init: null, history: null })
+    services.debugLog('window:created', { id })
+    return id
+  },
+
+  ensureSpare() {
+    if (this.spare && this.windows.has(this.spare)) return
+    this.spare = this.createWindow()
+  },
+
+  // init: { image, target, rect, mode, baseSize }，image 可由 pixels（已还原的清晰像素）代替
+  open(init) {
+    let id = this.spare
+    this.spare = null
+    if (!id || !this.windows.has(id)) id = this.createWindow()
+    const entry = this.windows.get(id)
+    entry.init = { ...init, winId: entry.win.id }
+    services.debugLog('window:open', { id, mode: init.mode, preloaded: entry.ready })
+    if (entry.ready) this.sendInit(entry)
+    return id
+  },
+
+  sendInit(entry) {
+    const { pixels, ...rest } = entry.init
+    // 像素数据直接通过进程间通信传给截图窗口，不必先编码成 PNG
+    entry.win.webContents.send('shot', { type: 'init', ...rest, pixels: pixels && { width: pixels.width, height: pixels.height, data: pixels.data } })
+    entry.init = null
   },
 
   close(id) {
     const entry = this.windows.get(id)
     if (!entry) return
     this.windows.delete(id)
+    this.flushHistory(entry)
     try { entry.win.close() } catch {}
+  },
+
+  flushHistory(entry) {
+    const job = entry.history
+    if (!job) return
+    entry.history = null
+    this.saveSharpened(job.image, job.pixels, job.time, job.epoch)
   },
 
   onMessage(id, msg) {
@@ -184,12 +231,19 @@ const Shot = {
     const { win } = entry
     switch (msg.type) {
       case 'ready':
-        win.webContents.send('shot', { type: 'init', ...entry.init })
+        entry.ready = true
+        if (entry.init) this.sendInit(entry)
         return
       case 'win':
         if (msg.op === 'show') {
           win.show()
           win.focus()
+          entry.shown = true
+          // 窗口显示后再生成清晰版写入剪贴板和历史；下一次截图的窗口也在此之后预先加载
+          setTimeout(() => {
+            this.flushHistory(entry)
+            this.ensureSpare()
+          }, 50)
         } else if (msg.op === 'close') {
           this.close(id)
         } else if (SHOT_WINDOW_OPS.has(msg.op)) {
@@ -197,6 +251,7 @@ const Shot = {
         }
         return
       case 'copy':
+        this.copyEpoch++
         window.ztools.copyImage(msg.png)
         services.addImageData(msg.png)
         if (msg.close) this.close(id)

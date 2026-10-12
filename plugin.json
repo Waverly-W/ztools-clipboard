@@ -1,0 +1,17 @@
+{
+  "name": "super-clipboard",
+  "title": "超级剪贴板",
+  "description": "记录和管理剪贴板历史：文字、图片、文件，支持收藏、标签、搜索、多选粘贴",
+  "version": "1.0.1",
+  "author": "",
+  "main": "index.html",
+  "logo": "logo.png",
+  "preload": "preload.js",
+  "features": [
+    {
+      "code": "clipboard",
+      "explain": "剪贴板历史",
+      "cmds": ["超级剪贴板", "剪贴板", "Clipboard", "cb"]
+    }
+  ]
+}

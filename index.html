@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>超级剪贴板</title>
+  <link rel="stylesheet" href="src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="top">
+      <nav class="tabs">
+        <button class="tab active" data-tab="history">历史</button>
+        <button class="tab" data-tab="fav">收藏</button>
+      </nav>
+      <div class="search">
+        <input id="search" type="text" placeholder="搜索历史和收藏，多个关键词用空格分隔" autocomplete="off" spellcheck="false" />
+      </div>
+      <button class="icon-btn" id="btn-settings" title="设置 (Ctrl+,)"></button>
+    </header>
+    <div class="filters" id="filters"></div>
+    <main class="list" id="list"></main>
+    <footer class="multi-bar hidden" id="multi-bar">
+      <span id="multi-count"></span>
+      <button data-multi="copy">复制</button>
+      <button data-multi="paste">粘贴</button>
+      <button data-multi="fav">收藏</button>
+      <button data-multi="delete">删除</button>
+      <button data-multi="all">全选</button>
+      <button data-multi="exit">退出多选 (Esc)</button>
+    </footer>
+  </div>
+
+  <div class="settings hidden" id="settings"></div>
+  <div class="modal-mask hidden" id="modal"><div class="modal" id="modal-body"></div></div>
+  <div class="menu hidden" id="menu"></div>
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="src/icons.js"></script>
+  <script src="src/actions.js"></script>
+  <script src="src/settings.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>

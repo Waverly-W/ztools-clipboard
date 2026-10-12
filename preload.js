@@ -1,7 +1,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { Store } = require('./lib/store')
+const { Store, md5 } = require('./lib/store')
 const { Watcher } = require('./lib/clipboard')
 const handlers = require('./lib/handlers')
 
@@ -260,6 +260,36 @@ window.services = {
   openListenerDir: () => {
     fs.mkdirSync(path.dirname(LISTENER_PATH), { recursive: true })
     zt().shellOpenPath(path.dirname(LISTENER_PATH))
+  },
+
+  // ---------- 截图 ----------
+  // 截图窗口通过 ztools.sendToParent('shot', msg) 发来的消息，senderId 为窗口的 webContents.id
+  onShotMessage: (fn) => {
+    require('electron').ipcRenderer.on('shot', (event, msg) => fn(event.senderId, msg))
+  },
+  // 把图片（Data URL）写入历史，已存在时挪到最前面
+  addImageData: (dataUrl) => {
+    const { nativeImage } = require('electron')
+    const img = nativeImage.createFromDataURL(dataUrl)
+    if (img.isEmpty()) return null
+    const { width, height } = img.getSize()
+    const item = store.add({ type: 'image', png: img.toPNG(), bitmapHash: md5(img.toBitmap()), width, height })
+    cleanup()
+    return item
+  },
+  saveImageData: (dataUrl) => {
+    const now = new Date()
+    const stamp = [now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours(), now.getMinutes(), now.getSeconds()]
+      .map((n) => String(n).padStart(2, '0'))
+      .join('')
+    const target = zt().showSaveDialog({
+      title: '保存截图',
+      defaultPath: path.join(zt().getPath('pictures') || zt().getPath('downloads'), `截图-${stamp}.png`),
+      filters: [{ name: 'PNG 图片', extensions: ['png'] }]
+    })
+    if (!target) return false
+    fs.writeFileSync(target, Buffer.from(dataUrl.split(',')[1], 'base64'))
+    return target
   },
 
   // ---------- 内置操作 ----------

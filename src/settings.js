@@ -1,12 +1,11 @@
 // 设置页
 const MAX_TOOLBAR = 8
-// 发布前替换为实际地址
+const REPO_URL = 'https://github.com/Waverly-W/ztools-clipboard'
 const LINKS = [
-  { name: '作者主页', url: 'https://github.com/' },
-  { name: '使用帮助', url: 'https://github.com/' },
+  { name: '作者主页', url: 'https://github.com/Waverly-W' },
+  { name: '使用帮助', url: REPO_URL + '#readme' },
   { name: '论坛', url: 'https://github.com/ZToolsCenter/ZTools/discussions' },
-  { name: '开源地址', url: 'https://github.com/' },
-  { name: '赞赏', url: 'https://afdian.com/' }
+  { name: '开源地址', url: REPO_URL }
 ]
 
 const HANDLER_OPTIONS = [['builtin', '内置功能'], ['provider', 'ZTools 服务'], ['redirect', '转给插件指令'], ['url', '打开网址']]
@@ -106,6 +105,25 @@ const Settings = {
         </section>
 
         <section id="toolbar-section">${this.toolbarHtml(config)}</section>
+
+        <section>
+          <h3>截图</h3>
+          <p class="muted">在 ZTools 中输入以下指令即可使用，建议设置全局快捷键。截图会自动记入剪贴板历史。</p>
+          <div class="btns">
+            <button data-hotkey="截图">设置「截图」快捷键</button>
+            <button data-hotkey="截图贴图">设置「截图贴图」快捷键</button>
+            <button data-hotkey="截图OCR">设置「截图OCR」快捷键</button>
+          </div>
+          <details>
+            <summary>操作说明</summary>
+            <ul class="shortcut-list">
+              <li><b>标注</b>：R 矩形、E 椭圆、A 箭头、P 画笔、H 荧光笔、M 马赛克、T 文字、N 序号；按住 Shift 画正方形、圆形或 45° 箭头；Ctrl+Z 撤销，Ctrl+Shift+Z 重做</li>
+              <li><b>截图后</b>：Enter / Ctrl+C 复制，Ctrl+S 保存，Ctrl+T / F3 贴图，Ctrl+O OCR 分词，Ctrl+J 跳转剪贴板，Esc 取消</li>
+              <li><b>贴图</b>：拖动移动，滚轮缩放，Ctrl+滚轮调透明度，1 恢复原始大小，双击或 Esc 关闭，Ctrl+E 继续标注，右键查看更多操作</li>
+              <li><b>剪贴板</b>：历史中的图片可以「贴图」「标注」；OCR 分词和跳转剪贴板会把截图（含标注）记入历史并选中</li>
+            </ul>
+          </details>
+        </section>
 
         <section>
           <h3>OCR 文字识别</h3>
@@ -285,6 +303,8 @@ const Settings = {
     el.onclick = async (e) => {
       const link = e.target.closest('[data-link]')
       if (link) return window.ztools.shellOpenExternal(link.dataset.link)
+      const hotkey = e.target.closest('[data-hotkey]')
+      if (hotkey) return window.ztools.redirectHotKeySetting(hotkey.dataset.hotkey)
       const detect = e.target.closest('[data-detect]')
       if (detect) return this.detectService(detect.dataset.detect)
       const cardBtn = e.target.closest('[data-card]')

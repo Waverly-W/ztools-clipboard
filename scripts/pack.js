@@ -5,7 +5,7 @@ const path = require('path')
 const zlib = require('zlib')
 
 const ROOT = path.resolve(__dirname, '..')
-const INCLUDE = ['plugin.json', 'preload.js', 'index.html', 'logo.png', 'lib', 'src']
+const INCLUDE = ['plugin.json', 'preload.js', 'capture-preload.js', 'index.html', 'capture.html', 'logo.png', 'lib', 'src']
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n

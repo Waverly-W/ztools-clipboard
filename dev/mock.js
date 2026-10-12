@@ -36,11 +36,26 @@
   const log = (...a) => { window.__log.push(a); console.log('[mock]', ...a) }
   window.ztools = {
     isDarkColors: () => matchMedia('(prefers-color-scheme: dark)').matches,
-    onThemeChange() {}, onPluginEnter(fn) { setTimeout(fn, 0) },
+    onThemeChange() {}, onPluginEnter(fn) { window.__enter = fn; setTimeout(() => fn({ code: 'clipboard' }), 0) },
+    // 截图相关（window.__wins 记录创建的窗口及收到的消息）
+    hideMainWindow: async () => log('hideMainWindow'), showMainWindow: async () => log('showMainWindow'),
+    screenCapture: (cb) => { const c = document.createElement('canvas'); c.width = 800; c.height = 400; const g = c.getContext('2d'); g.fillStyle = '#ddd'; g.fillRect(0, 0, 800, 400); setTimeout(() => cb(c.toDataURL(), { x: 100, y: 50, width: 400, height: 200 }), 10) },
+    getDisplayNearestPoint: () => ({ scaleFactor: 2, workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
+    getCursorScreenPoint: () => ({ x: 10, y: 10 }), screenToDipPoint: (p) => p,
+    copyImage: (img) => (log('copyImage', img.slice(0, 22)), true),
+    redirectHotKeySetting: (l) => log('redirectHotKeySetting', l),
+    createBrowserWindow(url, options) {
+      window.__wins = window.__wins || []
+      const id = 100 + window.__wins.length
+      const w = { url, options, calls: [], received: [] }
+      window.__wins.push(w)
+      const method = (name) => (...args) => w.calls.push([name, ...args])
+      return { id, show: method('show'), focus: method('focus'), hide: method('hide'), close: method('close'), setBounds: method('setBounds'), setOpacity: method('setOpacity'), setAlwaysOnTop: method('setAlwaysOnTop'), webContents: { id, send: (ch, msg) => w.received.push([ch, msg.type, msg.mode, msg.rect]) } }
+    },
     removeSubInput() {}, subInputBlur() {},
     dbStorage: { getItem: (k) => store[k] ?? null, setItem: (k, v) => (store[k] = v) },
     shellOpenExternal: (u) => log('openExternal', u), shellShowItemInFolder: (p) => log('showInFolder', p),
-    redirect: (l, p) => (log('redirect', l, p), true),
+    redirect: (l, p) => { log('redirect', l, p); if (Array.isArray(l) && l[0] === '超级剪贴板') setTimeout(() => window.__enter({ code: 'clipboard' }), 20); return true },
     // window.__noProvider = true 模拟未启用任何 OCR / 翻译服务
     // window.__provider = true 模拟已启用 OCR / 翻译服务
     providers: { getDefaultProvider: async (t) => (window.__provider ? { id: 'mock:' + t, label: '模拟' + t } : null) },
@@ -65,6 +80,9 @@
     chooseDataDir: () => null, openDataDir: () => log('openDataDir'),
     listenerStatus: () => ({ path: '/Users/me/.ztools-clipboard/bin/clipboard-listener', installed: false, mode: 'polling' }),
     restartListener: () => 'polling', openListenerDir: () => log('openListenerDir'),
+    onShotMessage: (fn) => { window.__shotMsg = fn },
+    addImageData: (png) => { log('addImageData', png.slice(0, 22)); let it = items.find((i) => i.id === 'shot'); if (!it) { it = { id: 'shot', type: 'image', hash: 'shot', image: 'shot.png', width: 800, height: 400 }; items.unshift(it) } it.time = Date.now(); items.sort((a, b) => b.time - a.time); emit(); return it },
+    saveImageData: (png) => (log('saveImageData', png.slice(0, 22)), '/tmp/shot.png'),
     systemOcr: async (i) => (log('systemOcr', i.id), '订单号：2024-1012-8848 下单时间 2024/10/12 15:30\n联系电话 138-1234-5678 邮箱 test@example.com\n官网 https://ztools.example/doc?id=1 实付 1,299.00 元'), systemOcrName: () => 'macOS 系统文字识别',
     detectSystemOcr: async () => ({ ok: true, message: 'macOS 系统文字识别可用' }),
     decodeQr: (i) => (log('decodeQr', i.id), 'https://example.com/qr'),

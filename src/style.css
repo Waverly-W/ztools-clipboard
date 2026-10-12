@@ -816,3 +816,8 @@ select {
   flex: 1;
   background: none;
 }
+
+.shortcut-list {
+  padding-left: 18px;
+  line-height: 1.8;
+}

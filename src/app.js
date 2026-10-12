@@ -6,14 +6,26 @@ const DEFAULT_TAG = '__default__'
 const NOTICE_KEY = 'noticeVersion'
 // 首次使用或有重要更新时弹出，更新内容时修改 version
 const NOTICE = {
-  version: '1.0.0',
-  title: '欢迎使用超级剪贴板',
-  lines: [
-    '复制过的文字、图片和文件会被自动记录，插件在后台运行期间持续记录。',
-    '单击复制，双击或回车粘贴到当前应用；按 Space 进入多选。',
-    '收藏的内容不受保存期限和条数上限影响，可以打标签分类。',
-    '按 Ctrl+, 打开设置，可修改存放位置（放到网盘目录即可多设备同步）。'
-  ]
+  version: '1.2.0',
+  welcome: {
+    title: '欢迎使用超级剪贴板',
+    lines: [
+      '复制过的文字、图片和文件会被自动记录，插件在后台运行期间持续记录。',
+      '单击复制，双击或回车粘贴到当前应用；按 Space 进入多选。',
+      '收藏的内容不受保存期限和条数上限影响，可以打标签分类。',
+      '输入「截图」即可截图，支持标注、贴图和 OCR 分词；在设置中可以为截图设置全局快捷键。',
+      '按 Ctrl+, 打开设置，可修改存放位置（放到网盘目录即可多设备同步）。'
+    ]
+  },
+  update: {
+    title: '新功能：截图',
+    lines: [
+      '输入「截图」「截图贴图」「截图OCR」即可使用，建议在设置中为它们设置全局快捷键。',
+      '截图后可以标注（矩形、箭头、画笔、马赛克、文字、序号等），Enter 复制，Ctrl+T 贴在屏幕上。',
+      '截图会自动记入剪贴板历史；可以从截图跳转到剪贴板，或直接 OCR 分词。',
+      '历史中的图片也可以「贴图」和「标注」。'
+    ]
+  }
 }
 
 const state = {
@@ -711,9 +723,10 @@ function showNotice() {
   let seen = null
   try { seen = window.ztools.dbStorage.getItem(NOTICE_KEY) } catch {}
   if (seen === NOTICE.version) return
+  const notice = seen ? NOTICE.update : NOTICE.welcome
   openModal(
-    `<div class="modal-head">${esc(NOTICE.title)}</div>
-     <ul class="notice">${NOTICE.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>
+    `<div class="modal-head">${esc(notice.title)}</div>
+     <ul class="notice">${notice.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>
      <div class="modal-foot"><button class="primary" data-act="ok">知道了</button></div>`
   )
   const done = () => {
@@ -875,7 +888,29 @@ function applyTheme(isDark) {
   document.documentElement.dataset.theme = isDark ? 'dark' : 'light'
 }
 
-function onEnter() {
+const SCREENSHOT_FEATURES = { screenshot: 'edit', 'screenshot-pin': 'pin', 'screenshot-ocr': 'ocr' }
+
+// 从截图跳转过来时选中对应图片，需要时打开 OCR 分词
+App.applyPendingFocus = function () {
+  const focus = Shot.takePendingFocus()
+  if (!focus) return
+  state.tab = 'history'
+  state.filter = 'all'
+  refresh()
+  const idx = state.list.findIndex((i) => i.id === focus.id)
+  if (idx < 0) return
+  setCursor(idx)
+  if (focus.ocr) {
+    Actions.builtins.ocr.run(state.list[idx]).catch((e) => toast('OCR 文字识别失败：' + (e.message || e)))
+  }
+}
+
+function onEnter(param) {
+  const after = SCREENSHOT_FEATURES[param && param.code]
+  if (after) {
+    Shot.capture(after).catch((e) => console.error('[screenshot]', e))
+    return
+  }
   services.sync()
   closeModal()
   Settings.close()
@@ -891,7 +926,8 @@ function onEnter() {
     window.ztools.subInputBlur()
   } catch {}
   searchEl.blur()
-  showNotice()
+  if (Shot.pendingFocus) App.applyPendingFocus()
+  else showNotice()
 }
 
 ;(function init() {
@@ -902,6 +938,7 @@ function onEnter() {
     zt.onPluginEnter(onEnter)
   }
   services.onChange(scheduleRefresh)
+  Shot.init()
   refresh()
   showNotice()
 })()

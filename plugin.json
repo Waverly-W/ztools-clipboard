@@ -1,8 +1,8 @@
 {
   "name": "super-clipboard",
   "title": "超级剪贴板",
-  "description": "记录和管理剪贴板历史：文字、图片、文件，支持收藏、标签、搜索、多选粘贴",
-  "version": "1.1.1",
+  "description": "剪贴板历史 + 截图：记录文字、图片、文件，支持收藏、搜索、多选粘贴；截图标注、贴图、OCR 分词",
+  "version": "1.2.0",
   "author": "",
   "main": "index.html",
   "logo": "logo.png",
@@ -11,7 +11,41 @@
     {
       "code": "clipboard",
       "explain": "剪贴板历史",
-      "cmds": ["超级剪贴板", "剪贴板", "Clipboard", "cb"]
+      "cmds": [
+        "超级剪贴板",
+        "剪贴板",
+        "Clipboard",
+        "cb"
+      ]
+    },
+    {
+      "code": "screenshot",
+      "explain": "截图：选区后标注、复制、贴图、OCR 分词",
+      "cmds": [
+        "截图",
+        "截屏",
+        "Screenshot",
+        "jt"
+      ],
+      "mainHide": true
+    },
+    {
+      "code": "screenshot-pin",
+      "explain": "截图并贴在屏幕上",
+      "cmds": [
+        "截图贴图",
+        "贴图"
+      ],
+      "mainHide": true
+    },
+    {
+      "code": "screenshot-ocr",
+      "explain": "截图并识别文字（OCR 分词）",
+      "cmds": [
+        "截图OCR",
+        "截图识字"
+      ],
+      "mainHide": true
     }
   ]
 }

@@ -12,9 +12,12 @@ lib/clipboard.js   读取剪贴板、监听变化
 lib/handlers.js    内置操作：系统 OCR、二维码、图床、百度识图、查找其他插件指令
 lib/vendor/        jsQR（二维码识别）
 index.html         主界面
+capture.html       截图标注 / 贴图窗口（capture-preload.js 为其预加载脚本）
 src/app.js         列表、搜索、多选、快捷键、弹窗
 src/actions.js     内置操作与自定义操作
 src/settings.js    设置页
+src/screenshot.js  截图控制：调用 ZTools 截图、管理截图窗口、与剪贴板联动
+src/capture.js     截图窗口：标注编辑与贴图
 src/icons.js       图标
 src/style.css      样式（跟随 ZTools 深浅色）
 dev/               浏览器预览（模拟 ztools API），不打包
@@ -43,8 +46,6 @@ node scripts/pack.js
 git tag v1.1.1 && git push origin v1.1.1
 ```
 
-发布前把 `src/settings.js` 里 `LINKS` 的地址换成实际的作者主页、帮助文档、开源仓库和赞赏页。
-
 ## 界面调试
 
 在项目根目录执行 `python3 -m http.server 5178`，打开 `http://localhost:5178/dev/preview.html`（使用模拟的 ztools API）。
@@ -63,6 +64,31 @@ git tag v1.1.1 && git push origin v1.1.1
 2. 否则使用 ZTools 剪贴板事件 + 800ms 轮询（通过内容指纹判断变化）。
 
 密码管理器标记为敏感（`org.nspasteboard.ConcealedType`）的内容不会记录。
+
+## 截图
+
+基于 ZTools 的截图接口（`ztools.screenCapture`）选区，之后的标注、贴图由插件自己的窗口完成。
+
+| 指令 | 作用 |
+| --- | --- |
+| 截图 | 选区后进入标注 |
+| 截图贴图 | 选区后直接贴在屏幕上 |
+| 截图OCR | 选区后打开剪贴板并进行 OCR 分词 |
+
+三个指令都声明了 `mainHide`，在设置中可一键跳转到 ZTools 快捷键设置，用全局快捷键触发时不会闪出主窗口。
+
+**交互**
+
+- 选区后图片原位显示，工具栏在选区下方（放不下时在上方或选区内）。
+- 标注：R 矩形、E 椭圆、A 箭头、P 画笔、H 荧光笔、M 马赛克、T 文字、N 序号；可选颜色和粗细，Shift 约束为正方形 / 圆形 / 45° 箭头；Ctrl+Z 撤销，Ctrl+Shift+Z 重做。
+- 完成：Enter / Ctrl+C 复制，Ctrl+S 保存，Ctrl+T / F3 贴图，Ctrl+O OCR 分词，Ctrl+J 跳转剪贴板，Esc 取消。
+- 贴图：拖动移动，滚轮缩放（以光标为中心），Ctrl+滚轮调透明度，1 恢复原始大小，双击或 Esc 关闭；右键菜单提供复制、保存、OCR、继续标注（之前的标注仍可撤销）、跳转剪贴板、置顶、透明度。
+
+**与剪贴板联动**
+
+- ZTools 截图会写入系统剪贴板，因此每次截图都会自动记入历史；复制标注后的图片也会记入历史。
+- 跳转剪贴板 / OCR 分词：把当前图片（含标注）写入历史，打开剪贴板并选中它；OCR 会接着打开分词界面，可直接粘贴到当前应用。
+- 历史中的图片可以「贴图」和「标注」。
 
 ## 自定义操作
 

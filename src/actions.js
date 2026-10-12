@@ -8,7 +8,9 @@ const BUILTIN_ACTIONS = [
   { id: 'unfav', name: '取消收藏', icon: 'unstar', when: (item) => item.fav, run: (item) => App.unfavorite([item]) },
   { id: 'delete', name: '删除', icon: 'trash', when: () => true, run: (item) => App.remove([item]) },
   { id: 'split', name: '分词', icon: 'split', when: (item) => item.type === 'text', run: (item) => App.split(item) },
-  { id: 'saveFile', name: '保存为文件', icon: 'save', when: (item) => item.type !== 'file', run: (item) => App.saveFile(item) }
+  { id: 'saveFile', name: '保存为文件', icon: 'save', when: (item) => item.type !== 'file', run: (item) => App.saveFile(item) },
+  { id: 'pin', name: '贴图', icon: 'pin', when: (item) => item.type === 'image', run: (item) => Shot.openItem(item, 'pin') },
+  { id: 'annotate', name: '标注', icon: 'pen', when: (item) => item.type === 'image', run: (item) => Shot.openItem(item, 'edit') }
 ]
 
 const ok = (message) => ({ level: 'ok', message })

@@ -263,6 +263,19 @@ window.services = {
   },
 
   // ---------- 截图 ----------
+  // 截图流程的诊断日志：~/.ztools-clipboard/debug.log，超过 200KB 时清空重写
+  debugLog: (...args) => {
+    const line = `[${new Date().toISOString()}] ${args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')}\n`
+    try {
+      const file = path.join(BASE_DIR, 'debug.log')
+      fs.mkdirSync(BASE_DIR, { recursive: true })
+      let size = 0
+      try { size = fs.statSync(file).size } catch {}
+      if (size > 200 * 1024) fs.writeFileSync(file, line)
+      else fs.appendFileSync(file, line)
+    } catch {}
+    console.log('[screenshot]', ...args)
+  },
   // 截图窗口通过 ztools.sendToParent('shot', msg) 发来的消息，senderId 为窗口的 webContents.id
   onShotMessage: (fn) => {
     require('electron').ipcRenderer.on('shot', (event, msg) => fn(event.senderId, msg))
@@ -276,6 +289,17 @@ window.services = {
     const item = store.add({ type: 'image', png: img.toPNG(), bitmapHash: md5(img.toBitmap()), width, height })
     cleanup()
     return item
+  },
+  // 用清晰版截图替换历史中 ZTools 原始截图（已收藏的保留）
+  replaceImageData: (oldDataUrl, newDataUrl) => {
+    const { nativeImage } = require('electron')
+    const old = nativeImage.createFromDataURL(oldDataUrl)
+    if (!old.isEmpty()) {
+      const hash = 'img:' + md5(old.toBitmap())
+      const stale = store.items.filter((i) => i.hash === hash && !i.fav).map((i) => i.id)
+      if (stale.length) store.remove(stale)
+    }
+    return window.services.addImageData(newDataUrl)
   },
   saveImageData: (dataUrl) => {
     const now = new Date()

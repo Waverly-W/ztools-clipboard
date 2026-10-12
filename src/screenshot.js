@@ -4,13 +4,32 @@ const SHOT_WINDOW_OPS = new Set(['setBounds', 'setOpacity', 'setAlwaysOnTop', 'f
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-function imageSize(src) {
+function loadImg(src) {
   return new Promise((resolve) => {
     const img = new Image()
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+    img.onload = () => resolve(img)
     img.onerror = () => resolve(null)
     img.src = src
   })
+}
+
+async function imageSize(src) {
+  const img = await loadImg(src)
+  return img && { width: img.naturalWidth, height: img.naturalHeight }
+}
+
+// 高质量缩小。整数倍（如 2:1）时每个目标像素正好取源图 r×r 区域的平均值，与面积平均一致
+async function downscaleImage(src, w, h) {
+  const img = await loadImg(src)
+  if (!img) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(img, 0, 0, w, h)
+  return canvas.toDataURL('image/png')
 }
 
 const Shot = {
@@ -22,26 +41,76 @@ const Shot = {
       try {
         this.onMessage(id, msg)
       } catch (e) {
-        console.error('[screenshot]', e)
+        services.debugLog('window:error', String((e && e.stack) || e))
       }
     })
   },
 
   // after: edit 进入标注；pin 直接贴图；ocr 直接识别文字
   async capture(after = 'edit') {
+    const log = services.debugLog
     const zt = window.ztools
-    if (!document.hidden) {
-      // 从搜索框启动时先隐藏主窗口，等窗口完全消失再截图
-      await zt.hideMainWindow()
-      await sleep(250)
+    try {
+      log('capture:start', { after, hidden: document.hidden, hasApi: typeof zt.screenCapture })
+      if (!document.hidden) {
+        // 从搜索框启动时先隐藏主窗口，等窗口完全消失再截图
+        await zt.hideMainWindow()
+        await sleep(250)
+      }
+      const started = Date.now()
+      let result = null
+      // screenCapture 内部出错时 await 会抛出，避免流程静默卡住
+      await zt.screenCapture((image, bounds) => {
+        result = { image, bounds }
+      })
+      const ms = Date.now() - started
+      const image = result && result.image
+      log('capture:result', { ms, hasImage: !!image, length: image ? image.length : 0, bounds: result && result.bounds })
+      if (!image) {
+        // 几乎立即返回且没有图片，通常是截图没能启动（如缺少屏幕录制权限），用户取消时则不提示
+        if (ms < 800) this.notifyFailure('截图没有启动')
+        return
+      }
+      const size = await imageSize(image)
+      if (!size) return log('capture:bad-image')
+      const rect = this.captureRect(size, result.bounds) || this.centerRect(size).rect
+      const target = this.sharpTarget(size, rect)
+      if (after === 'ocr') return this.gotoClipboard((target && (await this.sharpen(image, size, target))) || image, true)
+      log('capture:open', { size, rect, target })
+      // 截图窗口自己按 target 缩小显示，先打开窗口；剪贴板和历史中的清晰版随后生成
+      this.open(image, rect, after === 'pin' ? 'pin' : 'edit', { width: rect.width, height: rect.height }, target)
+      if (target) await this.sharpen(image, size, target)
+    } catch (e) {
+      log('capture:error', String((e && e.stack) || e))
+      this.notifyFailure('截图失败：' + ((e && e.message) || e))
     }
-    const { image, bounds } = await new Promise((resolve) => zt.screenCapture((image, bounds) => resolve({ image, bounds })))
-    if (!image) return
-    if (after === 'ocr') return this.gotoClipboard(image, true)
-    const size = await imageSize(image)
-    if (!size) return
-    const rect = this.captureRect(size, bounds) || this.centerRect(size).rect
-    this.open(image, rect, after === 'pin' ? 'pin' : 'edit', { width: rect.width, height: rect.height })
+  },
+
+  // 混合缩放比例的多屏环境下，ZTools 可能按高倍率放大低倍率屏幕的截图，导致发虚。
+  // 图片像素密度高于所在屏幕时返回屏幕实际像素尺寸，否则返回 null
+  sharpTarget(size, rect) {
+    const center = { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+    const scale = window.ztools.getDisplayNearestPoint(center).scaleFactor || 1
+    const target = { width: Math.round(rect.width * scale), height: Math.round(rect.height * scale) }
+    return size.width > target.width * 1.05 ? target : null
+  },
+
+  // 生成清晰版并替换剪贴板与历史中的原始截图
+  async sharpen(image, size, target) {
+    const started = Date.now()
+    const sharp = await downscaleImage(image, target.width, target.height)
+    if (!sharp) return null
+    window.ztools.copyImage(sharp)
+    services.replaceImageData(image, sharp)
+    services.debugLog('capture:sharpen', { from: size, to: target, ms: Date.now() - started })
+    return sharp
+  },
+
+  notifyFailure(title) {
+    const hint = window.ztools.isMacOS()
+      ? '请在「系统设置 → 隐私与安全性 → 屏幕录制」中允许 ZTools，然后重启 ZTools'
+      : '请确认系统允许 ZTools 截取屏幕'
+    window.ztools.showNotification(`${title}。${hint}`)
   },
 
   // 从剪贴板历史中的图片打开贴图 / 标注
@@ -76,7 +145,8 @@ const Shot = {
     return { rect: { x: wa.x + (wa.width - width) / 2, y: wa.y + (wa.height - height) / 2, width, height }, base }
   },
 
-  open(image, rect, mode, baseSize) {
+  // target：显示用的像素尺寸，图片更大时截图窗口会先高质量缩小
+  open(image, rect, mode, baseSize, target = null) {
     const win = window.ztools.createBrowserWindow('capture.html', {
       x: Math.round(rect.x),
       y: Math.round(rect.y),
@@ -96,7 +166,8 @@ const Shot = {
       title: mode === 'pin' ? '贴图' : '截图',
       webPreferences: { preload: 'capture-preload.js' }
     })
-    this.windows.set(win.webContents.id, { win, init: { image, rect, mode, baseSize } })
+    this.windows.set(win.webContents.id, { win, init: { image, rect, mode, baseSize, target, winId: win.id } })
+    services.debugLog('window:created', { id: win.webContents.id, mode })
   },
 
   close(id) {
@@ -108,6 +179,7 @@ const Shot = {
 
   onMessage(id, msg) {
     const entry = this.windows.get(id)
+    if (msg.type !== 'win' || msg.op !== 'setBounds') services.debugLog('window:message', { id, type: msg.type, op: msg.op, message: msg.message, known: !!entry })
     if (!entry) return
     const { win } = entry
     switch (msg.type) {

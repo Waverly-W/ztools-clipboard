@@ -39,8 +39,12 @@
     onThemeChange() {}, onPluginEnter(fn) { window.__enter = fn; setTimeout(() => fn({ code: 'clipboard' }), 0) },
     // 截图相关（window.__wins 记录创建的窗口及收到的消息）
     hideMainWindow: async () => log('hideMainWindow'), showMainWindow: async () => log('showMainWindow'),
-    screenCapture: (cb) => { const c = document.createElement('canvas'); c.width = 800; c.height = 400; const g = c.getContext('2d'); g.fillStyle = '#ddd'; g.fillRect(0, 0, 800, 400); setTimeout(() => cb(c.toDataURL(), { x: 100, y: 50, width: 400, height: 200 }), 10) },
-    getDisplayNearestPoint: () => ({ scaleFactor: 2, workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
+    screenCapture: async (cb) => { if (window.__captureFail) throw new Error(window.__captureFail); await new Promise((r) => setTimeout(r, 10)); if (window.__captureEmpty) return cb('', undefined); const c = document.createElement('canvas'); c.width = 800; c.height = 400; const g = c.getContext('2d')
+      // 每个 2×2 块的四个像素红色通道为 0、255、100、50，平均值应为 101
+      const d = g.createImageData(800, 400); for (let y = 0; y < 400; y++) for (let x = 0; x < 800; x++) { const o = (y * 800 + x) * 4; d.data[o] = [[0, 255], [100, 50]][y % 2][x % 2]; d.data[o + 1] = 128; d.data[o + 2] = (x >> 1) % 256; d.data[o + 3] = 255 }
+      g.putImageData(d, 0, 0); cb(c.toDataURL(), { x: 100, y: 50, width: 400, height: 200 }) },
+    showNotification: (m) => log('showNotification', m), isMacOS: () => true,
+    getDisplayNearestPoint: () => ({ scaleFactor: window.__sf || 2, workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
     getCursorScreenPoint: () => ({ x: 10, y: 10 }), screenToDipPoint: (p) => p,
     copyImage: (img) => (log('copyImage', img.slice(0, 22)), true),
     redirectHotKeySetting: (l) => log('redirectHotKeySetting', l),
@@ -81,8 +85,10 @@
     listenerStatus: () => ({ path: '/Users/me/.ztools-clipboard/bin/clipboard-listener', installed: false, mode: 'polling' }),
     restartListener: () => 'polling', openListenerDir: () => log('openListenerDir'),
     onShotMessage: (fn) => { window.__shotMsg = fn },
+    debugLog: (...a) => (window.__debug = window.__debug || []).push(a),
     addImageData: (png) => { log('addImageData', png.slice(0, 22)); let it = items.find((i) => i.id === 'shot'); if (!it) { it = { id: 'shot', type: 'image', hash: 'shot', image: 'shot.png', width: 800, height: 400 }; items.unshift(it) } it.time = Date.now(); items.sort((a, b) => b.time - a.time); emit(); return it },
     saveImageData: (png) => (log('saveImageData', png.slice(0, 22)), '/tmp/shot.png'),
+    replaceImageData: (oldPng, newPng) => { log('replaceImageData'); window.__sharp = newPng; return window.services.addImageData(newPng) },
     systemOcr: async (i) => (log('systemOcr', i.id), '订单号：2024-1012-8848 下单时间 2024/10/12 15:30\n联系电话 138-1234-5678 邮箱 test@example.com\n官网 https://ztools.example/doc?id=1 实付 1,299.00 元'), systemOcrName: () => 'macOS 系统文字识别',
     detectSystemOcr: async () => ({ ok: true, message: 'macOS 系统文字识别可用' }),
     decodeQr: (i) => (log('decodeQr', i.id), 'https://example.com/qr'),

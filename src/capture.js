@@ -50,6 +50,8 @@ const S = {
 
 const canvas = $('#canvas')
 const ctx = canvas.getContext('2d')
+const overlay = $('#overlay')
+const overlayCtx = overlay.getContext('2d')
 const textInput = $('#text-input')
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
@@ -86,9 +88,15 @@ function tip(text) {
 }
 
 // ---------- 窗口与布局 ----------
-// 直接发送：窗口创建时是隐藏的，requestAnimationFrame 在隐藏窗口中不会执行
+// 拖动、缩放时每帧最多调整一次窗口；窗口显示前 requestAnimationFrame 不会执行，此时直接调整
+let windowFrame = 0
 function applyWindow() {
-  host.send('win', { op: 'setBounds', args: [S.win] })
+  if (!S.shown) return host.windowOp('setBounds', S.win)
+  if (windowFrame) return
+  windowFrame = requestAnimationFrame(() => {
+    windowFrame = 0
+    host.windowOp('setBounds', S.win)
+  })
 }
 
 function place(el, rect) {
@@ -139,8 +147,8 @@ function setMode(mode) {
     layoutPin()
   }
   render()
-  host.send('win', { op: 'setAlwaysOnTop', args: [mode === 'edit' || S.top, mode === 'edit' ? 'screen-saver' : 'floating'] })
-  host.send('win', { op: 'focus' })
+  host.windowOp('setAlwaysOnTop', mode === 'edit' || S.top, mode === 'edit' ? 'screen-saver' : 'floating')
+  host.windowOp('focus')
 }
 
 // ---------- 绘制 ----------
@@ -237,26 +245,39 @@ function drawShape(c, s) {
   c.restore()
 }
 
-function render() {
-  if (!S.base) return
+// 两层画布：canvas 保存图片和已完成的标注，只在标注增删时更新；
+// overlay 叠在上面，只画正在绘制的图形。移动鼠标时只需清空并重画 overlay
+function rebuildLayer() {
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.drawImage(S.base, 0, 0)
   for (const s of S.shapes) drawShape(ctx, s)
-  if (S.drawing) drawShape(ctx, S.drawing)
+}
+
+function render() {
+  if (!S.base) return
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height)
+  if (S.drawing) drawShape(overlayCtx, S.drawing)
+}
+
+// 鼠标移动时合并到下一帧绘制
+let renderFrame = 0
+function scheduleRender() {
+  if (renderFrame) return
+  renderFrame = requestAnimationFrame(() => {
+    renderFrame = 0
+    render()
+  })
 }
 
 function exportPng() {
-  const drawing = S.drawing
-  S.drawing = null
   commitText()
-  render()
-  S.drawing = drawing
   return canvas.toDataURL('image/png')
 }
 
 function pushShape(shape) {
   S.shapes.push(shape)
   S.redo = []
+  drawShape(ctx, shape)
   render()
   renderToolbar()
 }
@@ -264,13 +285,16 @@ function pushShape(shape) {
 function undo() {
   if (!S.shapes.length) return
   S.redo.push(S.shapes.pop())
+  rebuildLayer()
   render()
   renderToolbar()
 }
 
 function redo() {
   if (!S.redo.length) return
-  S.shapes.push(S.redo.pop())
+  const shape = S.redo.pop()
+  S.shapes.push(shape)
+  drawShape(ctx, shape)
   render()
   renderToolbar()
 }
@@ -398,7 +422,7 @@ canvas.addEventListener('pointermove', (e) => {
     S.drawing.y2 = p.y
     constrain(S.drawing, e.shiftKey)
   }
-  render()
+  scheduleRender()
 })
 
 canvas.addEventListener('pointerup', () => {
@@ -457,13 +481,13 @@ window.addEventListener('wheel', (e) => {
 
 function setOpacity(v) {
   S.opacity = Math.round(clamp(v, 0.2, 1) * 10) / 10
-  host.send('win', { op: 'setOpacity', args: [S.opacity] })
+  host.windowOp('setOpacity', S.opacity)
   tip(`透明度 ${Math.round(S.opacity * 100)}%`)
 }
 
 function toggleTop() {
   S.top = !S.top
-  host.send('win', { op: 'setAlwaysOnTop', args: [S.top, 'floating'] })
+  host.windowOp('setAlwaysOnTop', S.top, 'floating')
   tip(S.top ? '已置顶' : '已取消置顶')
 }
 
@@ -655,6 +679,10 @@ window.addEventListener('keydown', (e) => {
 })
 
 // ---------- 初始化 ----------
+// 页面错误回报给插件主页面写入诊断日志
+window.addEventListener('error', (e) => host.send('error', { message: `${e.message} @${e.filename}:${e.lineno}` }))
+window.addEventListener('unhandledrejection', (e) => host.send('error', { message: String((e.reason && e.reason.stack) || e.reason) }))
+
 host.on(async (msg) => {
   if (msg.type !== 'init') return
   try {
@@ -663,12 +691,28 @@ host.on(async (msg) => {
   S.base = await loadImage(msg.image)
   S.natW = S.base.naturalWidth
   S.natH = S.base.naturalHeight
-  canvas.width = S.natW
-  canvas.height = S.natH
+  // 图片像素密度高于屏幕时先高质量缩小到屏幕实际像素，避免显示时再被浏览器缩放而发虚
+  if (msg.target && S.natW > msg.target.width * 1.05) {
+    const sharp = document.createElement('canvas')
+    sharp.width = msg.target.width
+    sharp.height = msg.target.height
+    const sctx = sharp.getContext('2d')
+    sctx.imageSmoothingEnabled = true
+    sctx.imageSmoothingQuality = 'high'
+    sctx.drawImage(S.base, 0, 0, sharp.width, sharp.height)
+    S.base = sharp
+    S.natW = sharp.width
+    S.natH = sharp.height
+  }
+  canvas.width = overlay.width = S.natW
+  canvas.height = overlay.height = S.natH
+  host.setWindowId(msg.winId)
+  rebuildLayer()
   S.rect = { ...msg.rect }
   S.baseSize = msg.baseSize || { width: S.rect.width, height: S.rect.height }
   setMode(msg.mode)
   host.send('win', { op: 'show' })
+  S.shown = true
 })
 
 host.send('ready')

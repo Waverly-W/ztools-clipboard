@@ -908,7 +908,8 @@ App.applyPendingFocus = function () {
 function onEnter(param) {
   const after = SCREENSHOT_FEATURES[param && param.code]
   if (after) {
-    Shot.capture(after).catch((e) => console.error('[screenshot]', e))
+    services.debugLog('enter', param)
+    Shot.capture(after)
     return
   }
   services.sync()

@@ -4,7 +4,7 @@
   let handler = null
   const params = new URLSearchParams(location.search)
   const mode = params.get('mode') || 'edit'
-  const rect = { x: +(params.get('x') || 120), y: +(params.get('y') || 60), width: 420, height: 260 }
+  const rect = { x: +(params.get('x') || 120), y: +(params.get('y') || 60), width: +(params.get('w') || 420), height: +(params.get('h') || 260) }
   function sampleImage() {
     const c = document.createElement('canvas')
     c.width = rect.width * 2
@@ -21,7 +21,7 @@
   window.shotHost = {
     send(type, payload = {}) {
       window.__shot.sent.push({ type, ...payload, png: payload.png ? payload.png.slice(0, 30) : undefined })
-      if (type === 'ready') setTimeout(() => handler({ type: 'init', image: sampleImage(), rect, mode, baseSize: { width: rect.width, height: rect.height } }))
+      if (type === 'ready') setTimeout(() => handler({ type: 'init', image: sampleImage(), rect, mode, baseSize: { width: rect.width, height: rect.height }, target: params.get('target') ? { width: rect.width, height: rect.height } : null, winId: 7 }))
       if (type === 'win' && payload.op === 'setBounds') {
         const b = payload.args[0]
         window.__shot.bounds = b
@@ -31,7 +31,9 @@
         document.documentElement.style.height = b.height + 'px'
       }
     },
-    on(fn) { handler = fn }
+    on(fn) { handler = fn },
+    setWindowId(id) { window.__shot.winId = id },
+    windowOp(op, ...args) { this.send('win', { op, args }) }
   }
   window.ztools = {
     isDarkColors: () => params.get('dark') === '1',

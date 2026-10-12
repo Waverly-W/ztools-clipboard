@@ -11,10 +11,39 @@
     { id: '6', type: 'text', hash: 'f', time: now - 3e8, text: '收藏的地址 上海市', fav: true, favTime: now - 2e3, tags: [] }
   ]
   for (let i = 0; i < 30; i++) items.push({ id: 'g' + i, type: 'text', hash: 'g' + i, time: now - 4e8 - i * 1e6, text: '历史记录 ' + i })
+  // ?demo=1：README 截图用的演示数据
+  const DEMO = new URLSearchParams(location.search).has('demo')
+  const demoSvg = {
+    chart: `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#f8fafc"/><text x="32" y="48" font-size="22" font-family="sans-serif" fill="#1f2329">月度访问量</text>${[120, 180, 150, 240, 210, 300, 280].map((h, i) => `<rect x="${48 + i * 80}" y="${360 - h}" width="48" height="${h}" rx="6" fill="#3b82f6"/>`).join('')}</svg>`,
+    ui: `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#fff"/><rect width="640" height="44" fill="#f1f5f9"/><circle cx="24" cy="22" r="6" fill="#ef4444"/><circle cx="44" cy="22" r="6" fill="#f59e0b"/><circle cx="64" cy="22" r="6" fill="#22c55e"/>${[0, 1, 2, 3, 4].map((i) => `<rect x="32" y="${76 + i * 56}" width="${520 - i * 60}" height="18" rx="9" fill="#e2e8f0"/>`).join('')}</svg>`,
+    photo: `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7dd3fc"/><stop offset="1" stop-color="#fde68a"/></linearGradient></defs><rect width="640" height="400" fill="url(#g)"/><circle cx="480" cy="110" r="46" fill="#fbbf24"/><path d="M0 330 L160 200 L300 300 L420 220 L640 340 L640 400 L0 400Z" fill="#10b981"/><path d="M0 360 L200 280 L380 360 L640 300 L640 400 L0 400Z" fill="#047857"/></svg>`
+  }
+  const svgUrl = (k) => 'data:image/svg+xml,' + encodeURIComponent(demoSvg[k])
+  if (DEMO) {
+    const m = 60e3, h = 3600e3
+    const t = (text, ago, extra = {}) => ({ type: 'text', text, time: now - ago, ...extra })
+    items = [
+      t('https://github.com/Waverly-W/ztools-clipboard', 8e3),
+      { type: 'image', time: now - 2 * m, demo: 'chart', width: 640, height: 400 },
+      t('周会纪要：1. 截图支持定格全屏选区与标注；2. OCR 结果可直接分词复制；3. 下周发布 1.3 版本。', 9 * m),
+      t('#3B82F6', 23 * m),
+      { type: 'file', time: now - 47 * m, files: [{ path: '/Users/demo/Documents/季度报告.pdf', name: '季度报告.pdf' }, { path: '/Users/demo/Pictures/设计稿', name: '设计稿', isDir: true }] },
+      t('{\n  "name": "super-clipboard",\n  "version": "1.3.0"\n}', 1.3 * h),
+      { type: 'image', time: now - 2.2 * h, demo: 'ui', width: 640, height: 400 },
+      t('hello@example.com', 3.5 * h),
+      t('git tag v1.3.0 && git push origin v1.3.0', 5 * h, { fav: true, favTime: now - 10 * m, tags: ['命令'] }),
+      t('上海市浦东新区世纪大道 100 号', 26 * h, { fav: true, favTime: now - 20 * m, tags: ['常用'] }),
+      { type: 'image', time: now - 28 * h, demo: 'photo', width: 640, height: 400, fav: true, favTime: now - 30 * m, tags: [] },
+      t('const debounce = (fn, ms) => {\n  let timer\n  return (...args) => {\n    clearTimeout(timer)\n    timer = setTimeout(() => fn(...args), ms)\n  }\n}', 30 * h, { fav: true, favTime: now - 40 * m, tags: ['代码', '常用'] }),
+      t('The quick brown fox jumps over the lazy dog.', 50 * h),
+      t('npm install --save-dev vite', 52 * h, { fav: true, favTime: now - 50 * m, tags: ['命令'] }),
+      t('订单号：2024-1012-8848，联系电话 138-1234-5678', 75 * h)
+    ].map((it, i) => ({ id: 'd' + i, hash: 'd' + i, image: it.type === 'image' ? 'd' + i + '.png' : undefined, ...it }))
+  }
   const listeners = new Set()
   const emit = () => listeners.forEach((f) => f())
   let config = {
-    dataDir: '/Users/me/.ztools-clipboard/data', maxCount: 800, maxDays: 14,
+    dataDir: '/Users/demo/.ztools-clipboard/data', maxCount: 800, maxDays: 14,
     toolbar: ['copy', 'view', 'fav', 'editFav', 'delete'],
     screenshot: { mode: 'freeze' },
     ocr: { engine: 'auto' },
@@ -97,7 +126,7 @@
     favorite: (ids) => { ids.forEach((id) => Object.assign(items.find((i) => i.id === id), { fav: true, favTime: Date.now(), tags: [] })); emit() },
     unfavorite: (ids) => { ids.forEach((id) => Object.assign(items.find((i) => i.id === id), { fav: false, tags: [] })); emit() },
     editFavorite: (id, { text, tags }) => { const it = items.find((i) => i.id === id); if (text) { it.text = text; it.hash += 'x' } it.tags = tags; it.fav = true; emit() },
-    imagePath: () => '/tmp/c.png', imageUrl: () => svg('#f59e0b'), thumbUrl: () => svg('#f59e0b'),
+    imagePath: () => '/tmp/c.png', imageUrl: (i) => (i && i.demo ? svgUrl(i.demo) : svg('#f59e0b')), thumbUrl: (i) => (i && i.demo ? svgUrl(i.demo) : svg('#f59e0b')),
     fileExists: (p) => !p.endsWith('.pdf'), openFolder: (i) => log('openFolder', i.id), openPath: (p) => log('openPath', p),
     saveAsFile: (i) => (log('saveAsFile', i.id), '/tmp/x'),
     copy: (its) => (log('copy', its.map((i) => i.id)), true), paste: (its) => log('paste', its.map((i) => i.id)),

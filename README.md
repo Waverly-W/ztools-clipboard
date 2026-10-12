@@ -1,6 +1,29 @@
 # 超级剪贴板（ZTools 插件）
 
-记录和管理剪贴板历史，支持 Windows、macOS、Linux。纯 HTML/CSS/JS 实现，无需构建。
+记录和管理剪贴板历史，并内置截图工具（定格全屏选区、标注、贴图、OCR 分词），支持 Windows、macOS、Linux。纯 HTML/CSS/JS 实现，无需构建。
+
+## 预览
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/history.png" alt="剪贴板历史"><br><sub>剪贴板历史：按类型筛选，单击复制、双击粘贴</sub></td>
+    <td width="50%"><img src="docs/screenshots/favorites.png" alt="收藏与标签"><br><sub>收藏：按标签筛选，不受保存期限和条数上限影响</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/screenshot-select.png" alt="定格全屏选区"><br><sub>截图：定格全屏后选区，放大镜显示像素与颜色值</sub></td>
+    <td><img src="docs/screenshots/screenshot-annotate.png" alt="截图标注"><br><sub>标注：矩形、箭头、马赛克、文字、序号等，选完原地编辑</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/ocr.png" alt="OCR 分词"><br><sub>OCR 分词：按行显示，网址、电话、金额保持完整，点选复制</sub></td>
+    <td><img src="docs/screenshots/settings.png" alt="自定义操作"><br><sub>自定义操作：逐项配置并一键检测是否可用</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/dark.png" alt="深色模式"><br><sub>深色模式：跟随 ZTools 主题</sub></td>
+    <td></td>
+  </tr>
+</table>
+
+> 截图由 `node dev/readme-shots.js` 使用演示数据自动生成。
 
 ## 目录
 
@@ -16,11 +39,13 @@ capture.html       截图标注 / 贴图窗口（capture-preload.js 为其预加
 src/app.js         列表、搜索、多选、快捷键、弹窗
 src/actions.js     内置操作与自定义操作
 src/settings.js    设置页
-src/screenshot.js  截图控制：调用 ZTools 截图、管理截图窗口、与剪贴板联动
-src/capture.js     截图窗口：标注编辑与贴图
+src/screenshot.js  截图控制：定格全屏 / ZTools 原生截图、管理截图窗口、与剪贴板联动
+src/sharpen.js     ZTools 原生截图的清晰化（反推双线性放大）
+src/capture.js     截图窗口：选区、标注编辑与贴图
 src/icons.js       图标
 src/style.css      样式（跟随 ZTools 深浅色）
-dev/               浏览器预览（模拟 ztools API），不打包
+dev/               浏览器预览（模拟 ztools API）与 README 截图生成脚本，不打包
+docs/screenshots/  README 截图
 scripts/pack.js    打包脚本
 .github/workflows/ 推送 v* 标签时自动打包并发布 Release
 ```
@@ -35,7 +60,7 @@ scripts/pack.js    打包脚本
 node scripts/pack.js
 ```
 
-生成 `dist/super-clipboard-v<版本>.zip`（无需安装依赖，`dist/` 不提交到仓库）。ZTools 本地安装支持 `.zpx` 和 `.zip`，zip 需要 `plugin.json` 位于压缩包根目录，脚本已按此打包。压缩包只包含 `plugin.json`、`preload.js`、`lib/`、`index.html`、`src/`、`logo.png`。
+生成 `dist/super-clipboard-v<版本>.zip`（无需安装依赖，`dist/` 不提交到仓库）。ZTools 本地安装支持 `.zpx` 和 `.zip`，zip 需要 `plugin.json` 位于压缩包根目录，脚本已按此打包。压缩包只包含 `plugin.json`、`preload.js`、`capture-preload.js`、`index.html`、`capture.html`、`lib/`、`src/`、`logo.png`。
 
 ## 发布
 
@@ -48,7 +73,13 @@ git tag v1.1.1 && git push origin v1.1.1
 
 ## 界面调试
 
-在项目根目录执行 `python3 -m http.server 5178`，打开 `http://localhost:5178/dev/preview.html`（使用模拟的 ztools API）。
+在项目根目录执行 `python3 -m http.server 5178`，打开 `http://localhost:5178/dev/preview.html`（使用模拟的 ztools API）；截图窗口为 `dev/capture-preview.html?mode=select`。加上 `demo=1` 使用演示数据，`scene=…` 直接进入某个界面状态（见 `dev/scenes.js`）。
+
+更新 README 截图（需要 Node 22+ 与 Google Chrome）：
+
+```bash
+node dev/readme-shots.js
+```
 
 ## 数据
 

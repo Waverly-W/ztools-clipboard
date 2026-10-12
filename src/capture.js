@@ -120,7 +120,13 @@ function setWindow(bounds, toolbar) {
 
 // 工具栏默认在图片下方右对齐；下方放不下时放到上方，都放不下时放在图片内
 function layoutEdit() {
-  const wa = workArea()
+  let wa = workArea()
+  // 定格全屏时工具栏还要限制在截图窗口（整块屏幕）内
+  if (S.overlay) {
+    const x = Math.max(wa.x, S.win.x)
+    const y = Math.max(wa.y, S.win.y)
+    wa = { x, y, width: Math.min(wa.x + wa.width, S.win.x + S.win.width) - x, height: Math.min(wa.y + wa.height, S.win.y + S.win.height) - y }
+  }
   const r = S.rect
   const x = clamp(r.x + r.width - TOOLBAR_W, wa.x, wa.x + wa.width - TOOLBAR_W)
   let y

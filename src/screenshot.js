@@ -1,8 +1,21 @@
 // 截图：调用 ZTools 截图，打开标注 / 贴图窗口，并与剪贴板历史联动
 // 截图窗口只负责界面，复制、保存、写入历史、跳转都在插件主页面完成
-const SHOT_WINDOW_OPS = new Set(['setBounds', 'setOpacity', 'setAlwaysOnTop', 'focus'])
+const SHOT_WINDOW_OPS = new Set(['setBounds', 'setOpacity', 'setAlwaysOnTop', 'setVisibleOnAllWorkspaces', 'focus'])
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// NativeImage（BGRA 位图）转为 RGBA 像素
+function nativeImageToPixels(img) {
+  const { width, height } = img.getSize()
+  const data = new Uint8ClampedArray(img.toBitmap())
+  const px = new Uint32Array(data.buffer, 0, width * height)
+  // 小端序下每个像素读为 0xAARRGGBB，交换 R、B 得到 0xAABBGGRR（即 RGBA 字节序）
+  for (let i = 0; i < px.length; i++) {
+    const v = px[i]
+    px[i] = (v & 0xff00ff00) | ((v & 0xff) << 16) | ((v >>> 16) & 0xff)
+  }
+  return { width, height, data }
+}
 
 async function imageSize(src) {
   const size = pngSize(src)
@@ -30,10 +43,58 @@ const Shot = {
   // after: edit 进入标注；pin 直接贴图；ocr 直接识别文字
   // param 为插件进入参数，用来判断是否从搜索框启动（主窗口可见）
   async capture(after = 'edit', param = {}) {
+    const fromSearch = !!(param.payload || (param.inputState && param.inputState.searchQuery))
+    this.mainHidden = false
+    if (services.getConfig().screenshot.mode === 'freeze') {
+      try {
+        if (await this.captureFrozen(after, fromSearch)) return
+      } catch (e) {
+        services.debugLog('freeze:error', String((e && e.stack) || e))
+      }
+      services.debugLog('freeze:fallback-native')
+    }
+    // 定格截图已隐藏过主窗口时不再重复隐藏
+    return this.captureNative(after, fromSearch && !this.mainHidden)
+  },
+
+  // 定格全屏：抓取光标所在屏幕的原始分辨率画面，在铺满该屏幕的截图窗口中选区、标注
+  async captureFrozen(after, fromSearch) {
+    const log = services.debugLog
+    const zt = window.ztools
+    if (typeof zt.desktopCaptureSources !== 'function') return false
+    const started = Date.now()
+    this.ensureSpare() // 抓屏的同时加载窗口
+    if (fromSearch) {
+      // 从搜索框启动时主窗口可见：先隐藏，避免被截进画面
+      await zt.hideMainWindow()
+      await sleep(250)
+      this.mainHidden = true
+    }
+    const display = zt.getDisplayNearestPoint(zt.getCursorScreenPoint())
+    const physical = {
+      width: Math.round(display.bounds.width * display.scaleFactor),
+      height: Math.round(display.bounds.height * display.scaleFactor)
+    }
+    // thumbnailSize 等于屏幕物理像素时得到原始画面，不会缩放
+    const sources = await zt.desktopCaptureSources({ types: ['screen'], thumbnailSize: physical, fetchWindowIcons: false })
+    const grabMs = Date.now() - started
+    const source = sources.find((s) => String(s.display_id) === String(display.id)) || (sources.length === 1 ? sources[0] : null)
+    const img = source && source.thumbnail
+    if (!img || typeof img.toBitmap !== 'function' || img.isEmpty()) {
+      log('freeze:no-image', { sources: sources.length, displayId: display.id, ids: sources.map((s) => s.display_id) })
+      return false
+    }
+    const frozen = nativeImageToPixels(img)
+    log('freeze:grab', { after, display: { id: display.id, bounds: display.bounds, scale: display.scaleFactor }, size: [frozen.width, frozen.height], grabMs, totalMs: Date.now() - started })
+    this.open({ mode: 'select', after, frozen, display: { bounds: display.bounds, scaleFactor: display.scaleFactor } })
+    return true
+  },
+
+  // ZTools 原生截图
+  async captureNative(after, fromSearch) {
     const log = services.debugLog
     const zt = window.ztools
     try {
-      const fromSearch = !!(param.payload || (param.inputState && param.inputState.searchQuery))
       log('capture:start', { after, fromSearch })
       // 用户框选期间提前加载截图窗口
       if (after !== 'ocr') this.ensureSpare()
@@ -176,6 +237,8 @@ const Shot = {
       fullscreenable: false,
       skipTaskbar: true,
       alwaysOnTop: true,
+      // 允许窗口覆盖整块屏幕（包括 macOS 菜单栏），用于定格全屏选区
+      enableLargerThanScreen: true,
       title: '截图',
       webPreferences: { preload: 'capture-preload.js' }
     })
@@ -197,15 +260,16 @@ const Shot = {
     if (!id || !this.windows.has(id)) id = this.createWindow()
     const entry = this.windows.get(id)
     entry.init = { ...init, winId: entry.win.id }
-    services.debugLog('window:open', { id, mode: init.mode, preloaded: entry.ready })
+    services.debugLog('window:open', { id, mode: init.mode, after: init.after, preloaded: entry.ready })
     if (entry.ready) this.sendInit(entry)
     return id
   },
 
   sendInit(entry) {
-    const { pixels, ...rest } = entry.init
+    const { pixels, frozen, ...rest } = entry.init
+    const plain = (p) => p && { width: p.width, height: p.height, data: p.data }
     // 像素数据直接通过进程间通信传给截图窗口，不必先编码成 PNG
-    entry.win.webContents.send('shot', { type: 'init', ...rest, pixels: pixels && { width: pixels.width, height: pixels.height, data: pixels.data } })
+    entry.win.webContents.send('shot', { type: 'init', ...rest, pixels: plain(pixels), frozen: plain(frozen) })
     entry.init = null
   },
 

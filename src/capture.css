@@ -267,3 +267,85 @@ body[data-mode='edit'][data-tool='text'] #canvas {
   color: #fff;
   pointer-events: none;
 }
+
+/* ---------- 定格全屏选区 ---------- */
+#frozen {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#dim .dim {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+#selbox {
+  position: absolute;
+  pointer-events: none;
+  outline: 1px solid var(--primary);
+}
+
+#sel-info {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+#selbox.info-inside #sel-info {
+  bottom: auto;
+  top: 4px;
+  left: 4px;
+}
+
+body[data-mode='select'],
+body[data-mode='select'] #frozen {
+  cursor: crosshair;
+}
+
+body[data-mode='select'] #stage {
+  display: none;
+}
+
+#magnifier {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  background: #000;
+}
+
+#mag-canvas {
+  display: block;
+  width: 120px;
+  height: 120px;
+}
+
+#mag-info {
+  padding: 3px 6px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font: 11px/1.4 ui-monospace, Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+
+#select-hint {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  pointer-events: none;
+}

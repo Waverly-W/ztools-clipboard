@@ -14,6 +14,8 @@ const DEFAULT_CONFIG = {
   maxCount: 800,
   maxDays: 14,
   toolbar: ['copy', 'view', 'fav', 'editFav', 'delete'],
+  // 截图方式：freeze 先定格全屏画面再在插件窗口中选区（流畅、原始分辨率）；native 使用 ZTools 原生截图
+  screenshot: { mode: 'freeze' },
   // OCR 引擎：auto 优先使用 ZTools 中已启用的 OCR 服务，没有时使用系统文字识别
   ocr: { engine: 'auto' },
   // 图床：picgo 使用 PicGo / PicList 本地服务；custom 上传到自定义接口
@@ -85,6 +87,7 @@ function loadConfig() {
   let saved = null
   try { saved = zt().dbStorage.getItem(CONFIG_KEY) } catch {}
   const merged = { ...DEFAULT_CONFIG, ...(saved || {}) }
+  merged.screenshot = { ...DEFAULT_CONFIG.screenshot, ...merged.screenshot }
   merged.ocr = { ...DEFAULT_CONFIG.ocr, ...merged.ocr }
   merged.imageHost = { ...DEFAULT_CONFIG.imageHost, ...merged.imageHost }
   merged.customActions = migrateActions(merged.customActions || [])

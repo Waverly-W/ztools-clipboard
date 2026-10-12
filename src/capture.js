@@ -108,12 +108,14 @@ function place(el, rect) {
 
 function setWindow(bounds, toolbar) {
   S.rect = roundRect(S.rect)
-  S.win = roundRect(bounds)
+  // 定格全屏时窗口始终铺满屏幕，选区外显示变暗的定格画面
+  if (!S.overlay) S.win = roundRect(bounds)
   place($('#stage'), S.rect)
   const bar = $('#toolbar')
   bar.classList.toggle('hidden', !toolbar)
   if (toolbar) place(bar, toolbar)
-  applyWindow()
+  if (S.overlay) placeDim({ x: S.rect.x - S.win.x, y: S.rect.y - S.win.y, width: S.rect.width, height: S.rect.height })
+  else applyWindow()
 }
 
 // 工具栏默认在图片下方右对齐；下方放不下时放到上方，都放不下时放在图片内
@@ -135,6 +137,7 @@ function layoutPin(extra) {
 }
 
 function setMode(mode) {
+  if (mode === 'pin' && S.overlay) leaveOverlay()
   S.mode = mode
   commitText()
   closeMenu(false)
@@ -540,6 +543,8 @@ function closeMenu(relayout = true) {
 
 window.addEventListener('contextmenu', (e) => {
   e.preventDefault()
+  if (S.mode === 'select') return close()
+  if (S.mode === 'edit' && S.overlay && !S.shapes.length && !e.target.closest('#stage, #toolbar')) return enterSelect()
   if (S.mode === 'pin' && e.target.closest('#stage')) openMenu(e)
 })
 
@@ -649,6 +654,7 @@ window.addEventListener('keydown', (e) => {
     if (S.menuOpen) return closeMenu()
     return close()
   }
+  if (S.mode === 'select') return
   const shortcuts = {
     c: 'copy',
     s: 'save',
@@ -678,6 +684,188 @@ window.addEventListener('keydown', (e) => {
   }
 })
 
+// ---------- 定格全屏选区 ----------
+const frozenCanvas = $('#frozen')
+const magCanvas = $('#mag-canvas')
+const magCtx = magCanvas.getContext('2d')
+const MAG_PIXELS = 15 // 放大镜显示的像素范围（15×15，放大 8 倍）
+
+// 选区外变暗：用四块矩形拼出选区周围，移动选区时只改位置，几乎没有绘制开销
+function placeDim(sel) {
+  const W = S.win.width
+  const H = S.win.height
+  const r = sel || { x: 0, y: 0, width: 0, height: 0 }
+  const set = (id, x, y, w, h) => Object.assign($(id).style, { left: x + 'px', top: y + 'px', width: Math.max(0, w) + 'px', height: Math.max(0, h) + 'px' })
+  if (!sel) {
+    set('#dim-t', 0, 0, W, H)
+    set('#dim-b', 0, 0, 0, 0)
+    set('#dim-l', 0, 0, 0, 0)
+    set('#dim-r', 0, 0, 0, 0)
+    $('#selbox').style.display = 'none'
+    return
+  }
+  set('#dim-t', 0, 0, W, r.y)
+  set('#dim-b', 0, r.y + r.height, W, H - r.y - r.height)
+  set('#dim-l', 0, r.y, r.x, r.height)
+  set('#dim-r', r.x + r.width, r.y, W - r.x - r.width, r.height)
+  const box = $('#selbox')
+  box.style.display = ''
+  set('#selbox', r.x, r.y, r.width, r.height)
+  const sf = S.frozenW / S.win.width
+  $('#sel-info').textContent = `${Math.round(r.width * sf)} × ${Math.round(r.height * sf)}`
+  box.classList.toggle('info-inside', r.y < 24)
+}
+
+function startOverlay(msg) {
+  const { width, height, data } = msg.frozen
+  S.frozenData = new Uint8ClampedArray(data)
+  S.frozenW = width
+  S.frozenH = height
+  frozenCanvas.width = width
+  frozenCanvas.height = height
+  frozenCanvas.getContext('2d').putImageData(new ImageData(S.frozenData, width, height), 0, 0)
+  S.overlay = true
+  S.after = msg.after || 'edit'
+  S.win = roundRect(msg.display.bounds)
+  document.body.dataset.overlay = '1'
+  frozenCanvas.classList.remove('hidden')
+  $('#dim').classList.remove('hidden')
+  enterSelect()
+  host.windowOp('setBounds', S.win)
+  host.windowOp('setVisibleOnAllWorkspaces', true, { visibleOnFullScreen: true })
+  host.windowOp('setAlwaysOnTop', true, 'screen-saver')
+  host.send('win', { op: 'show' })
+  S.shown = true
+  host.windowOp('focus')
+}
+
+function enterSelect() {
+  commitText()
+  S.mode = 'select'
+  S.tool = null
+  S.sel = null
+  S.selStart = null
+  document.body.dataset.mode = 'select'
+  $('#toolbar').classList.add('hidden')
+  $('#select-hint').classList.remove('hidden')
+  placeDim(null)
+}
+
+function leaveOverlay() {
+  S.overlay = false
+  delete document.body.dataset.overlay
+  frozenCanvas.classList.add('hidden')
+  $('#dim').classList.add('hidden')
+  $('#magnifier').classList.add('hidden')
+  host.windowOp('setVisibleOnAllWorkspaces', false)
+}
+
+function selectionFrom(a, b) {
+  const W = S.win.width
+  const H = S.win.height
+  const x1 = clamp(Math.min(a.x, b.x), 0, W)
+  const y1 = clamp(Math.min(a.y, b.y), 0, H)
+  const x2 = clamp(Math.max(a.x, b.x), 0, W)
+  const y2 = clamp(Math.max(a.y, b.y), 0, H)
+  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 }
+}
+
+function drawMagnifier(p) {
+  const mag = $('#magnifier')
+  const sf = S.frozenW / S.win.width
+  const px = clamp(Math.floor(p.x * sf), 0, S.frozenW - 1)
+  const py = clamp(Math.floor(p.y * sf), 0, S.frozenH - 1)
+  const half = (MAG_PIXELS - 1) / 2
+  const cell = magCanvas.width / MAG_PIXELS
+  magCtx.imageSmoothingEnabled = false
+  magCtx.fillStyle = '#000'
+  magCtx.fillRect(0, 0, magCanvas.width, magCanvas.height)
+  magCtx.drawImage(frozenCanvas, px - half, py - half, MAG_PIXELS, MAG_PIXELS, 0, 0, magCanvas.width, magCanvas.height)
+  magCtx.strokeStyle = 'rgba(59,130,246,0.9)'
+  magCtx.lineWidth = 1
+  magCtx.strokeRect(half * cell + 0.5, half * cell + 0.5, cell - 1, cell - 1)
+  const i = (py * S.frozenW + px) * 4
+  const d = S.frozenData
+  const hex = '#' + [d[i], d[i + 1], d[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase()
+  $('#mag-info').textContent = `${px}, ${py}  ${hex}`
+  mag.classList.remove('hidden')
+  // 放在光标右下方，靠近屏幕边缘时翻到另一侧
+  const w = 122
+  const h = 146
+  const x = p.x + 20 + w > S.win.width ? p.x - 20 - w : p.x + 20
+  const y = p.y + 20 + h > S.win.height ? p.y - 20 - h : p.y + 20
+  mag.style.left = x + 'px'
+  mag.style.top = y + 'px'
+}
+
+// 鼠标移动合并到每帧处理一次
+let selectFrame = 0
+function scheduleSelect() {
+  if (selectFrame) return
+  selectFrame = requestAnimationFrame(() => {
+    selectFrame = 0
+    if (S.mode !== 'select' || !S.pointer) return
+    if (S.selStart) {
+      S.sel = selectionFrom(S.selStart, S.pointer)
+      placeDim(S.sel)
+    }
+    drawMagnifier(S.pointer)
+  })
+}
+
+window.addEventListener('pointerdown', (e) => {
+  if (S.mode !== 'select' || e.button !== 0) return
+  S.selStart = { x: e.clientX, y: e.clientY }
+  S.pointer = S.selStart
+  $('#select-hint').classList.add('hidden')
+  try { document.body.setPointerCapture(e.pointerId) } catch {}
+  scheduleSelect()
+})
+
+window.addEventListener('pointermove', (e) => {
+  if (S.mode !== 'select') return
+  S.pointer = { x: e.clientX, y: e.clientY }
+  scheduleSelect()
+})
+
+window.addEventListener('pointerup', (e) => {
+  if (S.mode !== 'select' || !S.selStart) return
+  const sel = selectionFrom(S.selStart, { x: e.clientX, y: e.clientY })
+  S.selStart = null
+  // 太小视为误点，继续选区
+  if (sel.width < 4 || sel.height < 4) return placeDim(null)
+  finishSelection(sel)
+})
+
+// 从定格画面裁出选区，原地进入标注（或按启动指令直接贴图 / 识别文字）
+function finishSelection(sel) {
+  const sfx = S.frozenW / S.win.width
+  const sfy = S.frozenH / S.win.height
+  const sx = Math.round(sel.x * sfx)
+  const sy = Math.round(sel.y * sfy)
+  const sw = Math.max(1, Math.round(sel.width * sfx))
+  const sh = Math.max(1, Math.round(sel.height * sfy))
+  const crop = document.createElement('canvas')
+  crop.width = sw
+  crop.height = sh
+  crop.getContext('2d').drawImage(frozenCanvas, sx, sy, sw, sh, 0, 0, sw, sh)
+  S.base = crop
+  S.natW = sw
+  S.natH = sh
+  canvas.width = overlay.width = sw
+  canvas.height = overlay.height = sh
+  S.shapes = []
+  S.redo = []
+  rebuildLayer()
+  S.rect = { x: S.win.x + sel.x, y: S.win.y + sel.y, width: sel.width, height: sel.height }
+  S.baseSize = { width: sel.width, height: sel.height }
+  $('#magnifier').classList.add('hidden')
+  $('#select-hint').classList.add('hidden')
+  if (S.after === 'pin') return setMode('pin')
+  setMode('edit')
+  if (S.after === 'ocr') run('ocr')
+}
+
 // ---------- 初始化 ----------
 // 页面错误回报给插件主页面写入诊断日志
 window.addEventListener('error', (e) => host.send('error', { message: `${e.message} @${e.filename}:${e.lineno}` }))
@@ -704,6 +892,8 @@ host.on(async (msg) => {
   try {
     if (zt().isDarkColors()) document.body.dataset.theme = 'dark'
   } catch {}
+  host.setWindowId(msg.winId)
+  if (msg.mode === 'select') return startOverlay(msg)
   if (msg.pixels) {
     // 主页面已还原为屏幕实际像素的截图，直接以像素数据传入
     S.base = pixelsCanvas(msg.pixels)

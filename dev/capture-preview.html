@@ -6,6 +6,17 @@
   <link rel="stylesheet" href="../src/capture.css" />
 </head>
 <body>
+  <!-- 定格全屏选区：定格画面、选区外变暗、选区框、放大镜 -->
+  <canvas id="frozen" class="hidden"></canvas>
+  <div id="dim" class="hidden">
+    <div class="dim" id="dim-t"></div>
+    <div class="dim" id="dim-b"></div>
+    <div class="dim" id="dim-l"></div>
+    <div class="dim" id="dim-r"></div>
+    <div id="selbox"><span id="sel-info"></span></div>
+  </div>
+  <div id="magnifier" class="hidden"><canvas id="mag-canvas" width="120" height="120"></canvas><div id="mag-info"></div></div>
+  <div id="select-hint" class="hidden">拖动选择截图区域 · 右键或 Esc 取消</div>
   <div id="stage">
     <canvas id="canvas"></canvas>
     <canvas id="overlay"></canvas>

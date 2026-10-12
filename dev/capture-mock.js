@@ -18,10 +18,22 @@
     g.fillStyle = '#f59e0b'; g.beginPath(); g.arc(640, 300, 110, 0, Math.PI * 2); g.fill()
     return c.toDataURL('image/png')
   }
+  // 模拟一块 900×560、2 倍缩放屏幕的定格画面（1800×1120 物理像素）
+  function frozenScreen() {
+    const c = document.createElement('canvas'); c.width = 1800; c.height = 1120; const g = c.getContext('2d')
+    const grad = g.createLinearGradient(0, 0, 1800, 1120); grad.addColorStop(0, '#dbeafe'); grad.addColorStop(1, '#fde68a'); g.fillStyle = grad; g.fillRect(0, 0, 1800, 1120)
+    g.fillStyle = '#fff'; g.fillRect(200, 160, 1000, 640); g.fillStyle = '#1f2329'; g.font = '40px sans-serif'
+    for (let i = 0; i < 8; i++) g.fillText('定格全屏后选区 Freeze then select ' + i, 240, 240 + i * 70)
+    g.fillStyle = '#ef4444'; g.fillRect(1300, 300, 300, 300)
+    const data = g.getImageData(0, 0, 1800, 1120).data
+    window.__frozenSource = data
+    return { width: 1800, height: 1120, data }
+  }
   window.shotHost = {
     send(type, payload = {}) {
       window.__shot.sent.push({ type, ...payload, png: payload.png ? payload.png.slice(0, 30) : undefined })
-      if (type === 'ready') setTimeout(() => handler({ type: 'init', image: sampleImage(), rect, mode, baseSize: { width: rect.width, height: rect.height }, target: params.get('target') ? { width: rect.width, height: rect.height } : null, winId: 7 }))
+      if (type === 'ready' && mode === 'select') setTimeout(() => handler({ type: 'init', mode: 'select', after: params.get('after') || 'edit', frozen: frozenScreen(), display: { bounds: { x: 0, y: 0, width: 900, height: 560 }, scaleFactor: 2 }, winId: 7 }))
+      else if (type === 'ready') setTimeout(() => handler({ type: 'init', image: sampleImage(), rect, mode, baseSize: { width: rect.width, height: rect.height }, target: params.get('target') ? { width: rect.width, height: rect.height } : null, winId: 7 }))
       if (type === 'win' && payload.op === 'setBounds') {
         const b = payload.args[0]
         window.__shot.bounds = b

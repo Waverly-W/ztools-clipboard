@@ -10,6 +10,7 @@ const LINKS = [
 
 const HANDLER_OPTIONS = [['builtin', '内置功能'], ['provider', 'ZTools 服务'], ['redirect', '转给插件指令'], ['url', '打开网址']]
 const PROVIDER_OPTIONS = [['translation', '翻译'], ['ocr', 'OCR 文字识别']]
+const SCREENSHOT_MODES = [['freeze', '定格全屏后选区（推荐）'], ['native', 'ZTools 原生截图']]
 const OCR_ENGINES = [['auto', '自动：优先 ZTools OCR 服务，没有时用系统识别'], ['provider', '只用 ZTools OCR 服务'], ['system', '只用系统文字识别']]
 const IMAGE_HOST_MODES = [['picgo', 'PicGo / PicList'], ['custom', '自定义接口']]
 const IMAGE_FORMATS = [['url', '图片地址'], ['markdown', 'Markdown'], ['html', 'HTML']]
@@ -108,7 +109,9 @@ const Settings = {
 
         <section>
           <h3>截图</h3>
-          <p class="muted">在 ZTools 中输入以下指令即可使用，建议设置全局快捷键。截图会自动记入剪贴板历史。</p>
+          <p class="muted">在 ZTools 中输入以下指令即可使用，建议设置全局快捷键。</p>
+          ${field('截图方式', `<select data-cfg="screenshot.mode">${options(SCREENSHOT_MODES, config.screenshot.mode)}</select>`,
+            '定格全屏：按下快捷键时定格当前屏幕，在插件窗口中选区和标注，选区流畅、画面为屏幕原始分辨率。ZTools 原生：使用 ZTools 自带的选区，截图会自动记入剪贴板历史。')}
           <div class="btns">
             <button data-hotkey="截图">设置「截图」快捷键</button>
             <button data-hotkey="截图贴图">设置「截图贴图」快捷键</button>
@@ -388,7 +391,8 @@ const Settings = {
         const [group, key] = input.dataset.cfg.split('.')
         const value = { ...services.getConfig()[group], [key]: input.value.trim() }
         this.save({ [group]: value })
-        setStatus(el.querySelector('#status-' + group), null)
+        const status = el.querySelector('#status-' + group)
+        if (status) setStatus(status, null)
         if (input.dataset.cfg === 'imageHost.mode') el.querySelector('#image-host-fields').innerHTML = this.imageHostHtml(value)
         return
       }

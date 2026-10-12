@@ -16,6 +16,7 @@
   let config = {
     dataDir: '/Users/me/.ztools-clipboard/data', maxCount: 800, maxDays: 14,
     toolbar: ['copy', 'view', 'fav', 'editFav', 'delete'],
+    screenshot: { mode: 'freeze' },
     ocr: { engine: 'auto' },
     imageHost: { mode: 'picgo', picgoUrl: 'http://127.0.0.1:36677/upload', url: '', fileField: 'file', headers: '', urlPath: 'data.url', format: 'url' },
     customActions: [
@@ -58,7 +59,15 @@
       g.putImageData(d, 0, 0); cb(c.toDataURL(), { x: 100, y: 50, width: W, height: H })
     },
     showNotification: (m) => log('showNotification', m), isMacOS: () => true,
-    getDisplayNearestPoint: () => ({ scaleFactor: window.__sf || 2, workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
+    // 两块屏幕：id 1（光标所在，900×560，2 倍）和 id 2；thumbnail 模拟 NativeImage（BGRA 位图）
+    desktopCaptureSources: async (opts) => {
+      log('desktopCaptureSources', opts.thumbnailSize)
+      if (window.__grabFail) throw new Error('grab failed')
+      const make = (w, h, b, g, r) => { const buf = new Uint8Array(w * h * 4); for (let i = 0; i < w * h; i++) { buf[i * 4] = b; buf[i * 4 + 1] = g; buf[i * 4 + 2] = r; buf[i * 4 + 3] = 255 } return { isEmpty: () => false, getSize: () => ({ width: w, height: h }), toBitmap: () => buf } }
+      const { width, height } = opts.thumbnailSize
+      return [{ id: 'screen:2', display_id: '2', thumbnail: make(width, height, 9, 9, 9) }, { id: 'screen:1', display_id: '1', thumbnail: make(width, height, 30, 60, 200) }]
+    },
+    getDisplayNearestPoint: () => ({ id: 1, scaleFactor: window.__sf || 2, bounds: { x: 0, y: 0, width: 900, height: 560 }, workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
     getCursorScreenPoint: () => ({ x: 10, y: 10 }), screenToDipPoint: (p) => p,
     copyImage: (img) => (log('copyImage', img.slice(0, 22)), true),
     redirectHotKeySetting: (l) => log('redirectHotKeySetting', l),

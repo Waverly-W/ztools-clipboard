@@ -2,7 +2,7 @@
   "name": "super-clipboard",
   "title": "超级剪贴板",
   "description": "剪贴板历史 + 截图：记录文字、图片、文件，支持收藏、搜索、多选粘贴；截图标注、贴图、OCR 分词",
-  "version": "1.3.6",
+  "version": "1.3.7",
   "author": "",
   "main": "index.html",
   "logo": "logo.png",

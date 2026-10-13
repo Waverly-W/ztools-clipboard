@@ -6,7 +6,7 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/history.png" alt="剪贴板历史"><br><sub>剪贴板历史：按类型筛选，单击复制、双击粘贴</sub></td>
+    <td width="50%"><img src="docs/screenshots/history.png" alt="剪贴板历史"><br><sub>剪贴板历史：按类型筛选，单击选中，Ctrl+C 复制、双击粘贴</sub></td>
     <td width="50%"><img src="docs/screenshots/favorites.png" alt="收藏与标签"><br><sub>收藏：按标签筛选，不受保存期限和条数上限影响</sub></td>
   </tr>
   <tr>
@@ -155,7 +155,8 @@ node dev/readme-shots.js
 | --- | --- |
 | `↑/↓`、`Ctrl+K/J` | 上下移动 |
 | `Enter` / 双击 | 粘贴到当前应用（多选时粘贴已选） |
-| 单击 | 复制（多选时勾选） |
+| 单击 | 选中（多选时勾选） |
+| `Ctrl+C` | 复制当前条目（多选时复制已选）；搜索框中选中文字时复制文字 |
 | `⌘/Ctrl`+单击 | 进入多选并勾选或取消该条（macOS 用 `⌘`） |
 | `Shift`+单击、`Shift+↑/↓` | 从当前条目到目标条目整段选中 |
 | `⌘/Ctrl+A` | 全选（焦点不在搜索框时） |

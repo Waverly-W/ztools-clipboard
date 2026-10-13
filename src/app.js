@@ -11,7 +11,7 @@ const NOTICE = {
     title: '欢迎使用超级剪贴板',
     lines: [
       '复制过的文字、图片和文件会被自动记录，插件在后台运行期间持续记录。',
-      '单击复制，双击或回车粘贴到当前应用；按 Space 进入多选。',
+      '单击选中，Ctrl+C 复制，双击或回车粘贴到当前应用；按 Space 进入多选。',
       '收藏的内容不受保存期限和条数上限影响，可以打标签分类。',
       '输入「截图」即可截图，支持标注、贴图和 OCR 分词；在设置中可以为截图设置全局快捷键。',
       '按 Ctrl+, 打开设置，可修改存放位置（放到网盘目录即可多设备同步）。'
@@ -333,6 +333,11 @@ function currentItem() {
 }
 
 // 多选模式下操作已选条目（未选任何条目时操作当前条目）
+function hasTextSelection(inSearch) {
+  if (inSearch) return searchEl.selectionStart !== searchEl.selectionEnd
+  return String(window.getSelection()).length > 0
+}
+
 function targetItems() {
   if (state.multi && state.selected.size) return selectedItems()
   const item = currentItem()
@@ -836,8 +841,8 @@ listEl.addEventListener('click', (e) => {
     toggleAt(idx)
     return setCursor(idx)
   }
+  // 普通单击只选中，复制用条目上的按钮或右键菜单，粘贴用双击 / 回车
   setCursor(idx)
-  App.copy([item])
 })
 
 // 带 Shift 点击时阻止浏览器选中页面文字
@@ -945,6 +950,8 @@ document.addEventListener('keydown', (e) => {
   } else if (ctrl && (key === ',' || e.code === 'Comma')) Settings.open()
   else if (key === ' ' && !inSearch) toggleAt(state.cursor)
   else if (ctrl && lower === 'a' && !inSearch) selectAll()
+  // Ctrl+C 复制当前条目（多选时复制已选）；搜索框或页面中选中了文字时照常复制文字
+  else if (ctrl && lower === 'c' && !e.shiftKey && !e.altKey && !hasTextSelection(inSearch)) App.copy(targetItems())
   else if (key === 'Escape') {
     if (state.keyword) {
       searchEl.value = ''

@@ -329,9 +329,15 @@ code {
   background: var(--bg-soft);
 }
 
-.multi-bar span {
-  flex: 1;
+.multi-bar #multi-count {
   color: var(--text-soft);
+}
+
+.multi-bar #multi-hint {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-soft);
+  opacity: 0.8;
 }
 
 /* ---------- 弹层 ---------- */

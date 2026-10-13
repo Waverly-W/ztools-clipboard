@@ -37,7 +37,9 @@ const state = {
   cursor: 0,
   rendered: 0,
   multi: false,
-  selected: new Set()
+  selected: new Set(),
+  anchor: -1, // 区间选择的起点（最近一次单独勾选的条目）
+  rangeBase: null // 本轮 Shift 区间选择开始前已选的条目，再次 Shift 选择时替换区间而不是累加
 }
 
 const listEl = $('#list')
@@ -235,9 +237,14 @@ function setCursor(idx) {
   updateCursor()
 }
 
+const MOD_KEY = (() => {
+  try { return window.ztools.isMacOS() ? '⌘' : 'Ctrl' } catch { return 'Ctrl' }
+})()
+
 function renderMultiBar() {
   $('#multi-bar').classList.toggle('hidden', !state.multi)
   $('#multi-count').textContent = `已选 ${state.selected.size} 项`
+  $('#multi-hint').textContent = `Shift+点击选区间 · ${MOD_KEY}+点击单独勾选`
 }
 
 // ---------- 多选 ----------
@@ -256,6 +263,8 @@ function toggleSelect(item) {
 function enterMulti() {
   state.multi = true
   state.selected.clear()
+  state.anchor = -1
+  state.rangeBase = null
   renderList(true)
   renderMultiBar()
 }
@@ -264,8 +273,55 @@ function exitMulti() {
   if (!state.multi) return
   state.multi = false
   state.selected.clear()
+  state.anchor = -1
+  state.rangeBase = null
   renderList(true)
   renderMultiBar()
+}
+
+// 同步已渲染行的勾选状态
+function syncSelection() {
+  listEl.querySelectorAll('.row').forEach((el) => {
+    const item = state.list[+el.dataset.idx]
+    const on = !!item && state.selected.has(item.id)
+    el.classList.toggle('checked', on)
+    const check = el.querySelector('.check')
+    if (check) check.classList.toggle('on', on)
+  })
+  renderMultiBar()
+}
+
+// 单独勾选 / 取消（Space、⌘/Ctrl+点击、多选模式下单击），并作为下一次区间选择的起点
+function toggleAt(idx) {
+  const item = state.list[idx]
+  if (!item) return
+  if (!state.multi) enterMulti()
+  toggleSelect(item)
+  state.anchor = idx
+  state.rangeBase = null
+}
+
+// 区间选择（Shift+点击、Shift+↑/↓）：选中从起点到 idx 的所有条目。
+// 起点不变时再次区间选择会替换上一次的区间，单独勾选的条目保留
+function selectRangeTo(idx) {
+  if (!state.list[idx]) return
+  if (state.anchor < 0 || state.anchor >= state.list.length) state.anchor = state.cursor
+  if (!state.multi) {
+    const anchor = state.anchor
+    enterMulti()
+    state.anchor = anchor
+  }
+  if (!state.rangeBase) state.rangeBase = new Set(state.selected)
+  state.selected = new Set(state.rangeBase)
+  for (let i = Math.min(state.anchor, idx); i <= Math.max(state.anchor, idx); i++) state.selected.add(state.list[i].id)
+  syncSelection()
+}
+
+function selectAll() {
+  if (!state.multi) enterMulti()
+  state.list.forEach((i) => state.selected.add(i.id))
+  state.rangeBase = null
+  syncSelection()
 }
 
 function selectedItems() {
@@ -769,14 +825,29 @@ listEl.addEventListener('click', (e) => {
     const rect = e.target.closest('[data-more]').getBoundingClientRect()
     return showMenu(item, rect.left, rect.bottom + 4)
   }
+  // Shift+点击：从当前条目（或上次勾选的条目）到这一条整段选中
+  if (e.shiftKey) {
+    if (!state.multi) state.anchor = state.cursor
+    selectRangeTo(idx)
+    return setCursor(idx)
+  }
+  // ⌘/Ctrl+点击，或已在多选模式：单独勾选 / 取消（macOS 上 Ctrl+点击是右键，不会走到这里）
+  if (e.metaKey || e.ctrlKey || state.multi) {
+    toggleAt(idx)
+    return setCursor(idx)
+  }
   setCursor(idx)
-  if (state.multi) toggleSelect(item)
-  else App.copy([item])
+  App.copy([item])
+})
+
+// 带 Shift 点击时阻止浏览器选中页面文字
+listEl.addEventListener('mousedown', (e) => {
+  if (e.shiftKey && e.target.closest('.row')) e.preventDefault()
 })
 
 listEl.addEventListener('dblclick', (e) => {
   const row = e.target.closest('.row')
-  if (!row || state.multi || e.target.closest('button')) return
+  if (!row || state.multi || e.shiftKey || e.metaKey || e.ctrlKey || e.target.closest('button')) return
   App.paste([state.list[+row.dataset.idx]])
 })
 
@@ -807,11 +878,7 @@ $('#multi-bar').addEventListener('click', (e) => {
   const items = selectedItems()
   const act = btn.dataset.multi
   if (act === 'exit') return exitMulti()
-  if (act === 'all') {
-    state.list.forEach((i) => state.selected.add(i.id))
-    renderList(true)
-    return renderMultiBar()
-  }
+  if (act === 'all') return selectAll()
   if (!items.length) return toast('请先选择条目')
   if (act === 'copy') App.copy(items)
   if (act === 'paste') App.paste(items)
@@ -852,9 +919,21 @@ document.addEventListener('keydown', (e) => {
   const digit = digitMatch ? +digitMatch[1] : 0
   let handled = true
 
-  if (key === 'ArrowDown' || (ctrl && lower === 'j')) setCursor(state.cursor + 1)
-  else if (key === 'ArrowUp' || (ctrl && lower === 'k')) setCursor(state.cursor - 1)
-  else if (key === 'Enter') App.paste(targetItems())
+  const step = key === 'ArrowDown' || (ctrl && lower === 'j') ? 1 : key === 'ArrowUp' || (ctrl && lower === 'k') ? -1 : 0
+  if (step && e.shiftKey) {
+    // Shift+↑/↓：从当前条目开始扩展区间选择
+    if (!state.multi) state.anchor = state.cursor
+    const next = Math.max(0, Math.min(state.list.length - 1, state.cursor + step))
+    selectRangeTo(next)
+    setCursor(next)
+  } else if (step) {
+    setCursor(state.cursor + step)
+    // 多选模式下移动光标后，下一次区间选择从新位置开始
+    if (state.multi) {
+      state.anchor = state.cursor
+      state.rangeBase = null
+    }
+  } else if (key === 'Enter') App.paste(targetItems())
   else if (key === 'Tab') switchTab(state.tab === 'history' ? 'fav' : 'history')
   // Ctrl+1 / Ctrl+2 切换栏；其余 Ctrl/Alt+数字 粘贴第 N 条
   else if (ctrl && !e.altKey && (digit === 1 || digit === 2)) switchTab(digit === 1 ? 'history' : 'fav')
@@ -864,11 +943,9 @@ document.addEventListener('keydown', (e) => {
     searchEl.focus()
     searchEl.select()
   } else if (ctrl && (key === ',' || e.code === 'Comma')) Settings.open()
-  else if (key === ' ' && !inSearch) {
-    const item = currentItem()
-    if (!state.multi) enterMulti()
-    if (item) toggleSelect(item)
-  } else if (key === 'Escape') {
+  else if (key === ' ' && !inSearch) toggleAt(state.cursor)
+  else if (ctrl && lower === 'a' && !inSearch) selectAll()
+  else if (key === 'Escape') {
     if (state.keyword) {
       searchEl.value = ''
       state.keyword = ''

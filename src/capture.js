@@ -145,6 +145,7 @@ function layoutPin(extra) {
 function setMode(mode) {
   if (mode === 'pin' && S.overlay) leaveOverlay()
   S.mode = mode
+  host.send('mode', { mode })
   commitText()
   closeMenu(false)
   if (mode === 'pin') S.tool = null
@@ -651,6 +652,13 @@ $('#toolbar').addEventListener('click', (e) => {
 $('#toolbar').addEventListener('mousedown', (e) => e.preventDefault())
 
 // ---------- 快捷键 ----------
+// ZTools 注入的脚本会在 window 上监听 Esc：按键未被阻止时，它会当作「插件按 Esc 退出」交给主进程，
+// 隐藏插件主页面并返回搜索页（插件已在截图窗口显示时自行退出，不需要再退一次）。截图窗口自己处理 Esc，
+// 所以在事件冒泡到 window 之前（document 上）阻止默认行为，ZTools 就不会接管
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') e.preventDefault()
+})
+
 window.addEventListener('keydown', (e) => {
   if (e.isComposing) return
   const ctrl = e.ctrlKey || e.metaKey
@@ -738,7 +746,9 @@ function startOverlay(msg) {
   $('#dim').classList.remove('hidden')
   enterSelect()
   host.windowOp('setBounds', S.win)
-  host.windowOp('setVisibleOnAllWorkspaces', true, { visibleOnFullScreen: true })
+  // macOS 上不带 skipTransformProcessType 时，Electron 会把整个 ZTools 进程在「无 Dock 图标」和
+  // 「普通应用」之间来回切换；ZTools 是无 Dock 图标的应用，自己的窗口也都跳过了这一步
+  host.windowOp('setVisibleOnAllWorkspaces', true, { visibleOnFullScreen: true, skipTransformProcessType: true })
   host.windowOp('setAlwaysOnTop', true, 'screen-saver')
   host.send('win', { op: 'show' })
   S.shown = true
@@ -748,6 +758,7 @@ function startOverlay(msg) {
 function enterSelect() {
   commitText()
   S.mode = 'select'
+  host.send('mode', { mode: 'select' })
   S.tool = null
   S.sel = null
   S.selStart = null
@@ -763,7 +774,7 @@ function leaveOverlay() {
   frozenCanvas.classList.add('hidden')
   $('#dim').classList.add('hidden')
   $('#magnifier').classList.add('hidden')
-  host.windowOp('setVisibleOnAllWorkspaces', false)
+  host.windowOp('setVisibleOnAllWorkspaces', false, { skipTransformProcessType: true })
 }
 
 function selectionFrom(a, b) {

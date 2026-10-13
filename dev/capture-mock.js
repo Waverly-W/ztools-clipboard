@@ -44,6 +44,11 @@
     window.__frozenSource = data
     return { width: 1800, height: 1120, data }
   }
+  // 模拟 ZTools 注入的 Esc 监听（比插件脚本先注册在 window 上）：按键未被阻止时会上报给 ZTools
+  window.__ztoolsEscReports = 0
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !e.defaultPrevented) window.__ztoolsEscReports++
+  })
   window.shotHost = {
     send(type, payload = {}) {
       window.__shot.sent.push({ type, ...payload, png: payload.png ? payload.png.slice(0, 30) : undefined })

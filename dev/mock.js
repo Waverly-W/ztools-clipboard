@@ -68,7 +68,7 @@
     isDarkColors: () => matchMedia('(prefers-color-scheme: dark)').matches,
     onThemeChange() {}, onPluginEnter(fn) { window.__enter = fn; setTimeout(() => fn({ code: 'clipboard' }), 0) },
     // 截图相关（window.__wins 记录创建的窗口及收到的消息）
-    hideMainWindow: async () => log('hideMainWindow'), showMainWindow: async () => log('showMainWindow'),
+    hideMainWindow: async () => log('hideMainWindow'), showMainWindow: async () => log('showMainWindow'), outPlugin: async () => log('outPlugin'),
     // window.__captureMode = 'bilinear'：返回把已知 1× 图片双线性放大 2 倍的截图（模拟 ZTools），原图存于 window.__source
     screenCapture: async (cb) => {
       if (window.__captureFail) throw new Error(window.__captureFail)

@@ -44,6 +44,25 @@ const Shot = {
   // param 为插件进入参数，用来判断是否从搜索框启动（主窗口可见）
   async capture(after = 'edit', param = {}) {
     const fromSearch = !!(param.payload || (param.inputState && param.inputState.searchQuery))
+    // 抓屏还没完成时再次触发（连按快捷键）直接忽略，避免同时打开多个截图窗口；
+    // 超过 15 秒视为上一次已失效，避免异常时之后的截图都被忽略
+    if (this.capturing && Date.now() - this.capturing < 15000) return services.debugLog('capture:busy', { after })
+    // 上一次截图的窗口还停在选区阶段（如抓屏较慢时多按了一次快捷键），不再叠加一个全屏截图窗口
+    const selecting = [...this.windows.values()].find((e) => e.shown && e.mode === 'select')
+    if (selecting) {
+      try { selecting.win.focus() } catch {}
+      return services.debugLog('capture:selecting', { after })
+    }
+    const started = Date.now()
+    this.capturing = started
+    try {
+      return await this.captureWith(after, fromSearch)
+    } finally {
+      if (this.capturing === started) this.capturing = 0
+    }
+  },
+
+  async captureWith(after, fromSearch) {
     this.mainHidden = false
     if (services.getConfig().screenshot.mode === 'freeze') {
       try {
@@ -86,7 +105,7 @@ const Shot = {
     }
     const frozen = nativeImageToPixels(img)
     log('freeze:grab', { after, display: { id: display.id, bounds: display.bounds, scale: display.scaleFactor }, size: [frozen.width, frozen.height], grabMs, totalMs: Date.now() - started })
-    this.open({ mode: 'select', after, frozen, display: { bounds: display.bounds, scaleFactor: display.scaleFactor } })
+    this.open({ mode: 'select', after, frozen, display: { bounds: display.bounds, scaleFactor: display.scaleFactor }, fromCapture: true })
     return true
   },
 
@@ -129,7 +148,7 @@ const Shot = {
         return this.gotoClipboard(pixels ? this.saveSharpened(image, pixels, captureTime, epoch) : image, true)
       }
       // 先打开窗口：窗口按 target 用 GPU 快速缩小显示；主页面随后反推出清晰像素再替换进去
-      const id = this.open({ image, target, rect, mode: after === 'pin' ? 'pin' : 'edit', baseSize: { width: rect.width, height: rect.height } })
+      const id = this.open({ image, target, rect, mode: after === 'pin' ? 'pin' : 'edit', baseSize: { width: rect.width, height: rect.height }, fromCapture: true })
       if (!target) return
       const pixels = await this.sharpenWithLog(image, size, target, captureTime)
       const entry = this.windows.get(id)
@@ -178,6 +197,20 @@ const Shot = {
     services.replaceImageData(image, png, time)
     services.debugLog('capture:history', { ms: Date.now() - started, copied: epoch === this.copyEpoch })
     return png
+  },
+
+  // 截图窗口显示后退出插件（插件进程因截图窗口仍在而继续运行）。
+  // ZTools 在插件仍是当前插件时会跳过同一指令的再次触发（日志「同文本指令重入，跳过 onPluginEnter」），
+  // 不退出的话关掉截图窗口后再按同一个截图快捷键没有反应。
+  // 退出时 ZTools 会把焦点交给主窗口，随后把焦点还给截图窗口
+  leavePlugin(win) {
+    const started = Date.now()
+    Promise.resolve(window.ztools.outPlugin())
+      .catch(() => {})
+      .then(() => {
+        try { win.focus() } catch {}
+        services.debugLog('plugin:out', { ms: Date.now() - started })
+      })
   },
 
   notifyFailure(title) {
@@ -259,7 +292,10 @@ const Shot = {
     this.spare = null
     if (!id || !this.windows.has(id)) id = this.createWindow()
     const entry = this.windows.get(id)
-    entry.init = { ...init, winId: entry.win.id }
+    const { fromCapture, ...rest } = init
+    entry.fromCapture = !!fromCapture
+    entry.mode = rest.mode
+    entry.init = { ...rest, winId: entry.win.id }
     services.debugLog('window:open', { id, mode: init.mode, after: init.after, preloaded: entry.ready })
     if (entry.ready) this.sendInit(entry)
     return id
@@ -303,6 +339,7 @@ const Shot = {
           win.show()
           win.focus()
           entry.shown = true
+          if (entry.fromCapture) this.leavePlugin(win)
           // 窗口显示后再生成清晰版写入剪贴板和历史；下一次截图的窗口也在此之后预先加载
           setTimeout(() => {
             this.flushHistory(entry)
@@ -313,6 +350,9 @@ const Shot = {
         } else if (SHOT_WINDOW_OPS.has(msg.op)) {
           win[msg.op](...(msg.args || []))
         }
+        return
+      case 'mode':
+        entry.mode = msg.mode
         return
       case 'copy':
         this.copyEpoch++

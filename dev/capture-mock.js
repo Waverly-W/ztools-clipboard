@@ -5,6 +5,8 @@
   const params = new URLSearchParams(location.search)
   const mode = params.get('mode') || 'edit'
   const rect = { x: +(params.get('x') || 120), y: +(params.get('y') || 60), width: +(params.get('w') || 420), height: +(params.get('h') || 260) }
+  // 模拟 OCR：按绘制时的位置给出每行与每个字符的边界（与系统识别的输出格式一致）
+  const sampleLines = []
   function sampleImage() {
     const c = document.createElement('canvas')
     c.width = rect.width * 2
@@ -12,8 +14,18 @@
     const g = c.getContext('2d')
     g.fillStyle = '#f5f6f8'; g.fillRect(0, 0, c.width, c.height)
     g.fillStyle = '#1f2329'; g.font = '36px sans-serif'
-    g.fillText('订单号 2024-1012-8848', 40, 90)
-    g.fillText('联系电话 138-1234-5678', 40, 160)
+    const write = (text, x, y) => {
+      g.fillText(text, x, y)
+      const chars = []
+      for (let i = 0; i < text.length; i++) {
+        const a = x + g.measureText(text.slice(0, i)).width
+        chars.push(text[i] === ' ' ? null : [a, x + g.measureText(text.slice(0, i + 1)).width])
+      }
+      sampleLines.push({ text, box: { left: x, top: y - 30, right: x + g.measureText(text).width, bottom: y + 8 }, chars })
+    }
+    write('订单号：2024-1012-8848，金额 ¥1,299.00', 40, 90)
+    write('Contact: 138-1234-5678, hello@example.com', 40, 160)
+    window.__sampleSize = { width: c.width, height: c.height }
     g.fillStyle = '#3b82f6'; g.fillRect(40, 220, 300, 120)
     g.fillStyle = '#f59e0b'; g.beginPath(); g.arc(640, 300, 110, 0, Math.PI * 2); g.fill()
     return c.toDataURL('image/png')
@@ -54,6 +66,7 @@
       window.__shot.sent.push({ type, ...payload, png: payload.png ? payload.png.slice(0, 30) : undefined })
       if (type === 'ready' && mode === 'select') setTimeout(() => handler({ type: 'init', mode: 'select', after: params.get('after') || 'edit', frozen: frozenScreen(), display: { bounds: { x: 0, y: 0, width: 900, height: 560 }, scaleFactor: 2 }, winId: 7 }))
       else if (type === 'ready') setTimeout(() => handler({ type: 'init', image: sampleImage(), rect, mode, baseSize: { width: rect.width, height: rect.height }, target: params.get('target') ? { width: rect.width, height: rect.height } : null, winId: 7 }))
+      if (type === 'ocr') setTimeout(() => handler(params.get('ocr') === 'error' ? { type: 'ocr', error: '未识别到文字' } : { type: 'ocr', ...layoutTokens({ ...window.__sampleSize, lines: sampleLines }) }), 300)
       if (type === 'win' && payload.op === 'setBounds') {
         const b = payload.args[0]
         window.__shot.bounds = b

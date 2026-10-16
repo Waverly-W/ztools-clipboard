@@ -99,6 +99,54 @@ async function runOcr(item) {
   showOcrText(text)
 }
 
+// 识别文字及其在图片中的位置，用于在截图上直接选词。
+// 返回 { width, height, lines }；所用服务不提供位置时返回 { text, lines: null }。
+// ZTools OCR 服务返回了行坐标时直接用；否则（设置不是「只用 ZTools 服务」时）改用系统识别，它总能给出位置
+async function recognizeLayout(item) {
+  const engine = services.getConfig().ocr.engine
+  let plainText
+  if (engine !== 'system') {
+    const provider = await getProvider('ocr')
+    if (provider) {
+      try {
+        const result = (await window.ztools.ocr(services.imageUrl(item))) || {}
+        const layout = providerLayout(result, item)
+        if (layout) return layout
+        plainText = result.text || ''
+      } catch (e) {
+        if (engine === 'provider') throw e
+      }
+    } else if (engine === 'provider') {
+      throw new Error('未启用 ZTools OCR 服务，请安装提供 OCR 的插件，或在设置中改用系统文字识别')
+    }
+  }
+  if (engine !== 'provider') {
+    try {
+      const layout = await services.systemOcrLayout(item)
+      // 系统识别没有结果而 ZTools 服务识别出了文字时，用服务的结果
+      if (layout.lines.length || !plainText) return layout
+    } catch (e) {
+      if (plainText === undefined) throw e
+    }
+  }
+  return { text: plainText, lines: null }
+}
+
+// ZTools OCR 服务的 blocks 每项都带坐标（图片像素）时转换成统一格式
+function providerLayout(result, item) {
+  const blocks = result.blocks
+  const valid = (b) => b && typeof b === 'object' && typeof b.text === 'string' && ['left', 'top', 'right', 'bottom'].every((k) => Number.isFinite(b[k]))
+  if (!Array.isArray(blocks) || !blocks.length || !blocks.every(valid) || !item.width || !item.height) return null
+  const lines = blocks
+    .flatMap((b) => b.text.split(/\r?\n/).map((text, i, all) => {
+      // 一个块包含多行时按行均分高度
+      const h = (b.bottom - b.top) / all.length
+      return { text, box: { left: b.left, top: b.top + h * i, right: b.right, bottom: b.top + h * (i + 1) }, chars: null }
+    }))
+    .filter((l) => l.text.trim())
+  return lines.length ? { width: item.width, height: item.height, lines } : null
+}
+
 // OCR 结果用分词界面展示，方便挑选复制
 function showOcrText(text, title = 'OCR 文字识别') {
   if (!text || !text.trim()) return App.toast('未识别到文字')
@@ -336,5 +384,6 @@ const Actions = {
   },
   detect: detectCustomAction,
   detectOcr,
+  recognizeLayout,
   builtins: BUILTIN_HANDLERS
 }

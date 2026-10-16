@@ -321,6 +321,7 @@ window.services = {
 
   // ---------- 内置操作 ----------
   systemOcr: (item) => handlers.systemOcr(store.imagePath(item)),
+  systemOcrLayout: (item) => handlers.systemOcrLayout(store.imagePath(item)),
   systemOcrName: () => handlers.systemOcrName(),
   detectSystemOcr: () => handlers.detectSystemOcr(),
   decodeQr: (item) => handlers.decodeQr(store.imagePath(item)),

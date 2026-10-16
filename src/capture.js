@@ -45,7 +45,8 @@ const S = {
   drag: null,
   opacity: 1,
   top: true,
-  menuOpen: false
+  menuOpen: false,
+  ocr: null // 文字识别：{ busy, text, lines, tokens, picked, anchor }
 }
 
 const canvas = $('#canvas')
@@ -79,12 +80,12 @@ function workArea() {
 }
 
 let tipTimer = null
-function tip(text) {
+function tip(text, ms = 1200) {
   const el = $('#tip')
   el.textContent = text
   el.classList.remove('hidden')
   clearTimeout(tipTimer)
-  tipTimer = setTimeout(() => el.classList.add('hidden'), 1200)
+  tipTimer = setTimeout(() => el.classList.add('hidden'), ms)
 }
 
 // ---------- 窗口与布局 ----------
@@ -150,14 +151,16 @@ function setMode(mode) {
   closeMenu(false)
   if (mode === 'pin') S.tool = null
   document.body.dataset.mode = mode
-  if (mode === 'edit') {
+  $('#ocr-layer').classList.toggle('hidden', mode !== 'ocr')
+  if (mode === 'edit' || mode === 'ocr') {
     renderToolbar()
     layoutEdit()
   } else {
     layoutPin()
   }
   render()
-  host.windowOp('setAlwaysOnTop', mode === 'edit' || S.top, mode === 'edit' ? 'screen-saver' : 'floating')
+  const editing = mode === 'edit' || mode === 'ocr'
+  host.windowOp('setAlwaysOnTop', editing || S.top, editing ? 'screen-saver' : 'floating')
   host.windowOp('focus')
 }
 
@@ -587,7 +590,25 @@ function run(act) {
     case 'save':
       return host.send('save', { png: exportPng(), close: editing })
     case 'ocr':
-      return host.send('goto', { png: exportPng(), ocr: true, close: editing })
+      // 贴图时仍跳转到剪贴板识别；标注时在截图上直接识别选词
+      if (S.mode === 'pin') return host.send('goto', { png: exportPng(), ocr: true, close: false })
+      return startOcr()
+    case 'ocr-back':
+      return leaveOcr()
+    case 'ocr-all':
+      S.ocr.picked = new Set(S.ocr.tokens.map((_, i) => i))
+      return updateOcrPicked()
+    case 'ocr-copy':
+    case 'ocr-copy-all': {
+      const all = act === 'ocr-copy-all' || !S.ocr.picked.size
+      host.send('ocr-copy', { text: all ? S.ocr.text : ocrPickedText() })
+      return tip(all ? '已复制全文' : '已复制')
+    }
+    case 'ocr-paste':
+      if (!S.ocr.picked.size) return tip('请先选择文字')
+      return host.send('ocr-paste', { text: ocrPickedText() })
+    case 'ocr-split':
+      return host.send('ocr-split', { text: S.ocr.text })
     case 'jump':
       return host.send('goto', { png: exportPng(), ocr: false, close: editing })
     case 'pin':
@@ -609,6 +630,7 @@ function run(act) {
 
 // ---------- 工具栏 ----------
 function renderToolbar() {
+  if (S.mode === 'ocr') return renderOcrToolbar()
   if (S.mode !== 'edit') return
   const btn = (attrs, iconName, title, cls = '') => `<button class="${cls}" ${attrs} title="${title}">${icon(iconName)}</button>`
   $('#bar-main').innerHTML =
@@ -624,12 +646,33 @@ function renderToolbar() {
 
   const options = $('#bar-options')
   if (!S.tool) {
-    options.innerHTML = '<span class="hint">选择工具标注 · Enter 复制 · Ctrl+T 贴图 · Ctrl+O 识别文字 · Esc 取消</span>'
+    options.innerHTML = '<span class="hint">选择工具标注 · Enter 复制 · Ctrl+T 贴图 · Ctrl+O 识别文字并选词 · Esc 取消</span>'
     return
   }
   const colors = S.tool === 'mosaic' ? '' : COLORS.map((c) => `<button class="color ${S.color === c ? 'active' : ''}" data-color="${c}" style="--c:${c}"></button>`).join('') + '<i class="sep"></i>'
   const sizes = [0, 1, 2].map((i) => `<button class="size ${S.size === i ? 'active' : ''}" data-size="${i}" title="${['小', '中', '大'][i]}"><span style="--s:${4 + i * 4}px"></span></button>`).join('')
   options.innerHTML = colors + sizes + `<span class="hint">${S.tool === 'number' || S.tool === 'text' ? '点击放置' : '拖动绘制，按住 Shift 约束形状'}</span>`
+}
+
+function renderOcrToolbar() {
+  const o = S.ocr
+  const btn = (act, label, title, cls = '') => `<button class="label ${cls}" data-act="${act}" title="${title}">${label}</button>`
+  const back = btn('ocr-back', '返回标注', 'Esc')
+  if (o.busy) {
+    $('#bar-main').innerHTML = '<span class="hint">正在识别文字…</span>' + back
+    $('#bar-options').innerHTML = '<span class="hint">识别完成后可直接在截图上选词</span>'
+    return
+  }
+  const words = [...o.picked].filter((i) => !o.tokens[i].punct).length
+  $('#bar-main').innerHTML =
+    btn('ocr-all', '全选', 'Ctrl+A') +
+    btn('ocr-copy-all', '复制全文', '') +
+    btn('ocr-split', '分词界面', '在剪贴板的分词界面中打开') +
+    '<i class="sep"></i>' +
+    back +
+    btn('ocr-paste', '粘贴所选', 'Enter') +
+    btn('ocr-copy', '复制所选', 'Ctrl+C', 'primary')
+  $('#bar-options').innerHTML = `<span class="hint">已选 ${words} 个 · 点击选词，Shift+点击选范围，拖动框选，双击选整行</span>`
 }
 
 function setTool(tool) {
@@ -651,6 +694,112 @@ $('#toolbar').addEventListener('click', (e) => {
 
 $('#toolbar').addEventListener('mousedown', (e) => e.preventDefault())
 
+// ---------- 文字识别：在截图上选词 ----------
+const ocrLayer = $('#ocr-layer')
+
+function startOcr() {
+  const png = exportPng()
+  S.tool = null
+  document.body.dataset.tool = ''
+  S.ocr = { busy: true, text: '', lines: [], tokens: [], picked: new Set(), anchor: -1 }
+  document.body.dataset.ocrBusy = '1'
+  setMode('ocr')
+  host.send('ocr', { png })
+}
+
+function leaveOcr() {
+  S.ocr = null
+  ocrDrag = null
+  delete document.body.dataset.ocrBusy
+  ocrLayer.querySelectorAll('.ocr-tok').forEach((el) => el.remove())
+  setMode('edit')
+}
+
+function showOcr(msg) {
+  if (S.mode !== 'ocr' || !S.ocr) return
+  if (msg.error) {
+    tip(msg.error, 2500)
+    return leaveOcr()
+  }
+  delete document.body.dataset.ocrBusy
+  Object.assign(S.ocr, { busy: false, text: msg.text, lines: msg.lines, tokens: msg.tokens })
+  const pct = (v) => (v * 100).toFixed(3) + '%'
+  ocrLayer.insertAdjacentHTML(
+    'beforeend',
+    msg.tokens
+      .map((t, i) => `<div class="ocr-tok${t.punct ? ' punct' : ''}" data-i="${i}" style="left:${pct(t.box.x)};top:${pct(t.box.y)};width:${pct(t.box.w)};height:${pct(t.box.h)}"></div>`)
+      .join('')
+  )
+  renderToolbar()
+}
+
+function ocrPickedText() {
+  return joinPicked(S.ocr.tokens, S.ocr.lines, S.ocr.picked)
+}
+
+function updateOcrPicked() {
+  ocrLayer.querySelectorAll('.ocr-tok').forEach((el) => el.classList.toggle('on', S.ocr.picked.has(+el.dataset.i)))
+  renderToolbar()
+}
+
+// 点击选词 / 取消，Shift+点击选范围；拖动框选（按住 Shift、⌘/Ctrl 时在已选基础上追加）；点空白处清空
+let ocrDrag = null
+ocrLayer.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || !S.ocr || S.ocr.busy) return
+  e.preventDefault()
+  const tok = e.target.closest('.ocr-tok')
+  const additive = e.shiftKey || e.metaKey || e.ctrlKey
+  ocrDrag = { x: e.clientX, y: e.clientY, tok: tok ? +tok.dataset.i : -1, moved: false, additive, base: new Set(S.ocr.picked) }
+  ocrLayer.setPointerCapture(e.pointerId)
+})
+
+ocrLayer.addEventListener('pointermove', (e) => {
+  const d = ocrDrag
+  if (!d) return
+  if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return
+  d.moved = true
+  const r = ocrLayer.getBoundingClientRect()
+  const x1 = Math.min(d.x, e.clientX) - r.left
+  const y1 = Math.min(d.y, e.clientY) - r.top
+  const x2 = Math.max(d.x, e.clientX) - r.left
+  const y2 = Math.max(d.y, e.clientY) - r.top
+  const band = $('#ocr-band')
+  Object.assign(band.style, { left: x1 + 'px', top: y1 + 'px', width: x2 - x1 + 'px', height: y2 - y1 + 'px' })
+  band.classList.remove('hidden')
+  const hit = []
+  S.ocr.tokens.forEach((t, i) => {
+    const b = t.box
+    if (b.x * r.width < x2 && (b.x + b.w) * r.width > x1 && b.y * r.height < y2 && (b.y + b.h) * r.height > y1) hit.push(i)
+  })
+  S.ocr.picked = new Set(d.additive ? [...d.base, ...hit] : hit)
+  updateOcrPicked()
+})
+
+ocrLayer.addEventListener('pointerup', (e) => {
+  const d = ocrDrag
+  ocrDrag = null
+  $('#ocr-band').classList.add('hidden')
+  if (!d || d.moved || !S.ocr) return
+  const o = S.ocr
+  if (d.tok < 0) {
+    if (!d.additive) o.picked.clear()
+  } else if (e.shiftKey && o.anchor >= 0) {
+    for (let i = Math.min(o.anchor, d.tok); i <= Math.max(o.anchor, d.tok); i++) o.picked.add(i)
+  } else {
+    o.picked.has(d.tok) ? o.picked.delete(d.tok) : o.picked.add(d.tok)
+    o.anchor = d.tok
+  }
+  updateOcrPicked()
+})
+
+ocrLayer.addEventListener('dblclick', (e) => {
+  const tok = e.target.closest('.ocr-tok')
+  if (!tok || !S.ocr) return
+  const line = S.ocr.tokens[+tok.dataset.i].line
+  S.ocr.tokens.forEach((t, i) => t.line === line && S.ocr.picked.add(i))
+  updateOcrPicked()
+})
+
 // ---------- 快捷键 ----------
 // ZTools 注入的脚本会在 window 上监听 Esc：按键未被阻止时，它会当作「插件按 Esc 退出」交给主进程，
 // 隐藏插件主页面并返回搜索页（插件已在截图窗口显示时自行退出，不需要再退一次）。截图窗口自己处理 Esc，
@@ -666,9 +815,19 @@ window.addEventListener('keydown', (e) => {
   if (key === 'escape') {
     e.preventDefault()
     if (S.menuOpen) return closeMenu()
+    if (S.mode === 'ocr') return leaveOcr()
     return close()
   }
   if (S.mode === 'select') return
+  if (S.mode === 'ocr') {
+    if (!S.ocr || S.ocr.busy) return
+    const act = ctrl && key === 'c' ? 'ocr-copy' : ctrl && key === 'a' ? 'ocr-all' : !ctrl && key === 'enter' ? 'ocr-paste' : null
+    if (act) {
+      e.preventDefault()
+      run(act)
+    }
+    return
+  }
   const shortcuts = {
     c: 'copy',
     s: 'save',
@@ -905,6 +1064,7 @@ host.on(async (msg) => {
     render()
     return
   }
+  if (msg.type === 'ocr') return showOcr(msg)
   if (msg.type !== 'init') return
   try {
     if (zt().isDarkColors()) document.body.dataset.theme = 'dark'

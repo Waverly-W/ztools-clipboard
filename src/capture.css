@@ -210,6 +210,64 @@ body[data-mode='edit'][data-tool='text'] #canvas {
   white-space: nowrap;
 }
 
+/* ---------- 文字识别：在截图上选词 ---------- */
+#ocr-layer {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.12);
+  cursor: crosshair;
+}
+
+body[data-ocr-busy] #ocr-layer {
+  cursor: progress;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* 位置按图片比例给出，窗口缩放时自动跟随；四周留出 2px 便于点中 */
+.ocr-tok {
+  position: absolute;
+  box-sizing: content-box;
+  margin: -2px;
+  padding: 2px;
+  border-radius: 3px;
+  background: rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.7);
+  cursor: pointer;
+}
+
+.ocr-tok.punct {
+  background: transparent;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+}
+
+.ocr-tok:hover {
+  background: rgba(59, 130, 246, 0.22);
+}
+
+.ocr-tok.on {
+  background: rgba(59, 130, 246, 0.42);
+  box-shadow: 0 0 0 1.5px #3b82f6;
+}
+
+#ocr-band {
+  position: absolute;
+  border: 1px solid #3b82f6;
+  background: rgba(59, 130, 246, 0.12);
+  pointer-events: none;
+}
+
+.bar button.label {
+  width: auto;
+  padding: 0 10px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.bar button.label.primary {
+  color: #fff;
+  background: var(--primary);
+}
+
 /* ---------- 右键菜单 / 提示 ---------- */
 #menu {
   position: absolute;

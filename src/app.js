@@ -432,42 +432,6 @@ function joinTokens(tokens) {
   return out
 }
 
-// 返回 [{ text, start, punct }]，start 为在 text 中的位置；标点、符号也作为单独的块（punct 为 true），只去掉空白
-function segmentWords(text, offset = 0) {
-  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
-    const seg = new Intl.Segmenter('zh-CN', { granularity: 'word' })
-    return [...seg.segment(text)]
-      .filter((s) => s.segment.trim())
-      .map((s) => ({ text: s.segment, start: offset + s.index, punct: !s.isWordLike }))
-  }
-  return [...text.matchAll(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu)].map((m) => ({ text: m[0], start: offset + m.index, punct: !/[\p{L}\p{N}]/u.test(m[0]) }))
-}
-
-// 网址、邮箱、带分隔符的数字（电话、日期、金额）、带点或横线的英文数字串保持完整
-const WHOLE_TOKEN = /https?:\/\/[^\s，。、；"'<>（）()]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\d+(?:[-.:/,]\d+)+|[A-Za-z0-9_]+(?:[-.][A-Za-z0-9_]+)+/g
-
-function tokenizeLine(line) {
-  const tokens = []
-  let last = 0
-  for (const m of line.matchAll(WHOLE_TOKEN)) {
-    tokens.push(...segmentWords(line.slice(last, m.index), last), { text: m[0], start: m.index })
-    last = m.index + m[0].length
-  }
-  tokens.push(...segmentWords(line.slice(last), last))
-  return tokens
-}
-
-// 按行分词，返回 [{ text, line, start, end }]
-function tokenize(text, limit = 2000) {
-  const tokens = []
-  text.split(/\r?\n/).forEach((line, i) => {
-    for (const t of tokenizeLine(line)) {
-      if (tokens.length < limit) tokens.push({ text: t.text, line: i, start: t.start, end: t.start + t.text.length, punct: !!t.punct })
-    }
-  })
-  return tokens
-}
-
 function parseTags(str) {
   return [...new Set(str.split(/[\s,，]+/).map((t) => t.trim()).filter(Boolean))]
 }
@@ -702,20 +666,7 @@ const App = {
       },
       'wide'
     )
-    // 不同行之间换行；同一行内相邻的块照搬原文中间的空白（选连续一段时与原文一致），其余按分词规则拼接
-    const pickedText = () => {
-      let out = ''
-      let prev = null
-      for (const i of [...picked].sort((a, b) => a - b)) {
-        const t = tokens[i]
-        if (prev && t.line !== prev.line) out += '\n'
-        else if (prev && i === prev.index + 1) out += sourceLines[t.line].slice(prev.end, t.start)
-        else if (prev && /[A-Za-z0-9]$/.test(out) && /^[A-Za-z0-9]/.test(t.text)) out += ' '
-        out += t.text
-        prev = { ...t, index: i }
-      }
-      return out
-    }
+    const pickedText = () => joinPicked(tokens, sourceLines, picked)
     const update = () => {
       document.querySelectorAll('.token').forEach((el) => el.classList.toggle('on', picked.has(+el.dataset.i)))
       $('#split-count').textContent = `已选 ${[...picked].filter((i) => !tokens[i].punct).length} 个`
@@ -986,7 +937,10 @@ App.applyPendingFocus = function () {
   const idx = state.list.findIndex((i) => i.id === focus.id)
   if (idx < 0) return
   setCursor(idx)
-  if (focus.ocr) {
+  if (focus.text) {
+    App.splitText(focus.text, { title: 'OCR 文字识别' })
+    if (focus.notice) toast(focus.notice)
+  } else if (focus.ocr) {
     Actions.builtins.ocr.run(state.list[idx]).catch((e) => toast('OCR 文字识别失败：' + (e.message || e)))
   }
 }

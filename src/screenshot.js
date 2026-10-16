@@ -199,6 +199,31 @@ const Shot = {
     return png
   },
 
+  // 截图存入历史后识别文字及位置。所用 OCR 服务不提供位置时关闭截图窗口，改在剪贴板的分词界面中打开
+  async recognize(id, entry, png) {
+    const send = (data) => this.windows.has(id) && entry.win.webContents.send('shot', { type: 'ocr', ...data })
+    const item = services.addImageData(png)
+    if (!item) return send({ error: '无法读取截图' })
+    entry.ocrItemId = item.id
+    const started = Date.now()
+    try {
+      const result = await Actions.recognizeLayout(item)
+      services.debugLog('ocr:layout', { ms: Date.now() - started, lines: result.lines ? result.lines.length : null })
+      if (!this.windows.has(id)) return
+      if (!result.lines) {
+        if (!result.text || !result.text.trim()) return send({ error: '未识别到文字' })
+        this.close(id)
+        return this.focusInClipboard({ id: item.id, text: result.text, notice: '当前 OCR 服务未提供文字位置，已在分词界面中打开' })
+      }
+      const layout = layoutTokens(result)
+      if (!layout.tokens.length) return send({ error: '未识别到文字' })
+      send(layout)
+    } catch (e) {
+      services.debugLog('ocr:error', String((e && e.stack) || e))
+      send({ error: 'OCR 文字识别失败：' + ((e && e.message) || e) })
+    }
+  },
+
   // 截图窗口显示后退出插件（插件进程因截图窗口仍在而继续运行）。
   // ZTools 在插件仍是当前插件时会跳过同一指令的再次触发（日志「同文本指令重入，跳过 onPluginEnter」），
   // 不退出的话关掉截图窗口后再按同一个截图快捷键没有反应。
@@ -377,14 +402,35 @@ const Shot = {
         if (msg.close) this.close(id)
         this.gotoClipboard(msg.png, msg.ocr)
         return
+      // 在截图上识别文字：结果（每个词的位置）发回截图窗口显示
+      case 'ocr':
+        this.recognize(id, entry, msg.png)
+        return
+      case 'ocr-copy':
+        services.copyText(msg.text)
+        return
+      case 'ocr-paste':
+        this.close(id)
+        // 等截图窗口关闭、焦点回到之前的应用后再粘贴
+        setTimeout(() => services.pasteText(msg.text), 150)
+        return
+      case 'ocr-split':
+        this.close(id)
+        this.focusInClipboard({ id: entry.ocrItemId, text: msg.text })
+        return
     }
   },
 
   // 写入历史并打开剪贴板选中该图片；ocr 为 true 时接着打开 OCR 分词
   gotoClipboard(png, ocr) {
     const item = services.addImageData(png)
-    if (!item) return
-    this.pendingFocus = { id: item.id, ocr }
+    if (item) this.focusInClipboard({ id: item.id, ocr })
+  },
+
+  // 打开剪贴板并选中条目。focus：{ id, ocr }（ocr 为 true 时进行 OCR），
+  // 或 { id, text, notice }（直接用已识别的文字打开分词界面）
+  focusInClipboard(focus) {
+    this.pendingFocus = focus
     window.ztools.redirect(['超级剪贴板', '超级剪贴板'])
     // 跳转没有进入插件时直接显示主窗口
     setTimeout(() => {

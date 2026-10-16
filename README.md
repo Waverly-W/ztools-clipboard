@@ -14,7 +14,7 @@
     <td><img src="docs/screenshots/screenshot-annotate.png" alt="截图标注"><br><sub>标注：矩形、箭头、马赛克、文字、序号等，选完原地编辑</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/ocr.png" alt="OCR 分词"><br><sub>OCR 分词：按行显示，网址、电话、金额保持完整，点选复制</sub></td>
+    <td><img src="docs/screenshots/ocr.png" alt="OCR 分词"><br><sub>OCR 分词：按行显示，网址、电话、金额保持完整，保留标点，点选复制</sub></td>
     <td><img src="docs/screenshots/settings.png" alt="自定义操作"><br><sub>自定义操作：逐项配置并一键检测是否可用</sub></td>
   </tr>
   <tr>
@@ -141,7 +141,7 @@ node dev/readme-shots.js
 | 统计字数 | 本地统计字符、汉字、英文单词、数字、标点、行数、段落 |
 | 识别颜色值 | 本地解析，显示色块和 HEX / RGB / HSL，点击复制 |
 | 识别二维码 | 本地识别（内置 jsQR，Apache-2.0），网址可直接打开 |
-| OCR 文字识别 | 结果在分词界面中按行显示，网址、邮箱、电话、日期、金额等保持完整，点击选词、Shift+点击选范围、双击选整行，Enter 粘贴所选、Ctrl+C 复制所选，也可复制或编辑全文。设置中选择识别方式：自动（默认，优先 ZTools OCR 服务，没有时用系统识别）/ 只用 ZTools 服务 / 只用系统识别。系统识别：macOS 用 Vision（10.15+），Windows 用 Windows.Media.Ocr（10+，需安装对应语言的 OCR 包），Linux 用 tesseract |
+| OCR 文字识别 | 结果在分词界面中按行显示，网址、邮箱、电话、日期、金额等保持完整，标点单独成块（选连续一段时保留原文标点），点击选词、Shift+点击选范围、双击选整行，Enter 粘贴所选、Ctrl+C 复制所选，也可复制或编辑全文。设置中选择识别方式：自动（默认，优先 ZTools OCR 服务，没有时用系统识别）/ 只用 ZTools 服务 / 只用系统识别。系统识别：macOS 用 Vision（10.15+），Windows 用 Windows.Media.Ocr（10+，需安装对应语言的 OCR 包），Linux 用 tesseract |
 | 上传图床 | PicGo / PicList 本地服务（需开启 Server，默认 `http://127.0.0.1:36677/upload`），或自定义接口（multipart 上传，可配置文件字段名、请求头、返回 JSON 中图片地址的路径）。上传后按设置的格式（地址 / Markdown / HTML）复制 |
 | 百度识图 | 在 ZTools 内置浏览器中打开百度识图并自动选择图片，由页面完成上传 |
 

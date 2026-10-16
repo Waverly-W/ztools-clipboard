@@ -432,13 +432,15 @@ function joinTokens(tokens) {
   return out
 }
 
-// 返回 [{ text, start }]，start 为在 text 中的位置
+// 返回 [{ text, start, punct }]，start 为在 text 中的位置；标点、符号也作为单独的块（punct 为 true），只去掉空白
 function segmentWords(text, offset = 0) {
   if (typeof Intl !== 'undefined' && Intl.Segmenter) {
     const seg = new Intl.Segmenter('zh-CN', { granularity: 'word' })
-    return [...seg.segment(text)].filter((s) => s.isWordLike).map((s) => ({ text: s.segment, start: offset + s.index }))
+    return [...seg.segment(text)]
+      .filter((s) => s.segment.trim())
+      .map((s) => ({ text: s.segment, start: offset + s.index, punct: !s.isWordLike }))
   }
-  return [...text.matchAll(/[^\s,.;:!?，。；：！？、"'“”‘’()（）[\]【】<>《》]+/g)].map((m) => ({ text: m[0], start: offset + m.index }))
+  return [...text.matchAll(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu)].map((m) => ({ text: m[0], start: offset + m.index, punct: !/[\p{L}\p{N}]/u.test(m[0]) }))
 }
 
 // 网址、邮箱、带分隔符的数字（电话、日期、金额）、带点或横线的英文数字串保持完整
@@ -460,7 +462,7 @@ function tokenize(text, limit = 2000) {
   const tokens = []
   text.split(/\r?\n/).forEach((line, i) => {
     for (const t of tokenizeLine(line)) {
-      if (tokens.length < limit) tokens.push({ text: t.text, line: i, start: t.start, end: t.start + t.text.length })
+      if (tokens.length < limit) tokens.push({ text: t.text, line: i, start: t.start, end: t.start + t.text.length, punct: !!t.punct })
     }
   })
   return tokens
@@ -681,7 +683,7 @@ const App = {
     const lines = []
     tokens.forEach((t, i) => {
       if (!lines.length || lines[lines.length - 1].line !== t.line) lines.push({ line: t.line, html: '' })
-      lines[lines.length - 1].html += `<span class="token" data-i="${i}">${esc(t.text)}</span>`
+      lines[lines.length - 1].html += `<span class="token${t.punct ? ' punct' : ''}" data-i="${i}">${esc(t.text)}</span>`
     })
     const picked = new Set()
     let anchor = -1
@@ -700,14 +702,14 @@ const App = {
       },
       'wide'
     )
-    // 不同行之间换行；同一行内相邻的词保留原文中的空格，其余按分词规则拼接
+    // 不同行之间换行；同一行内相邻的块照搬原文中间的空白（选连续一段时与原文一致），其余按分词规则拼接
     const pickedText = () => {
       let out = ''
       let prev = null
       for (const i of [...picked].sort((a, b) => a - b)) {
         const t = tokens[i]
         if (prev && t.line !== prev.line) out += '\n'
-        else if (prev && i === prev.index + 1 && /\s/.test(sourceLines[t.line].slice(prev.end, t.start))) out += ' '
+        else if (prev && i === prev.index + 1) out += sourceLines[t.line].slice(prev.end, t.start)
         else if (prev && /[A-Za-z0-9]$/.test(out) && /^[A-Za-z0-9]/.test(t.text)) out += ' '
         out += t.text
         prev = { ...t, index: i }
@@ -716,7 +718,7 @@ const App = {
     }
     const update = () => {
       document.querySelectorAll('.token').forEach((el) => el.classList.toggle('on', picked.has(+el.dataset.i)))
-      $('#split-count').textContent = `已选 ${picked.size} 个`
+      $('#split-count').textContent = `已选 ${[...picked].filter((i) => !tokens[i].punct).length} 个`
     }
     const finish = (act) => {
       if (act === 'copy-all') {

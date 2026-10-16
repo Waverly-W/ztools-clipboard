@@ -481,6 +481,13 @@ code {
   cursor: pointer;
 }
 
+/* 标点、符号：窄一些、颜色淡一些，可以选中 */
+.token.punct {
+  padding: 2px 5px;
+  color: var(--text-soft);
+  background: transparent;
+}
+
 .token.on {
   background: var(--primary);
   border-color: var(--primary);

@@ -55,14 +55,52 @@ function joinPicked(tokens, sourceLines, picked) {
 const WIDE_CHAR = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/
 const charWeight = (c) => (WIDE_CHAR.test(c) ? 1 : /\s/.test(c) ? 0.3 : 0.55)
 
+// 每行四周留一点空白，再把相互重叠的行分开：上下相邻的行在两行之间的中线处分开，
+// 同一行高度上左右相邻的块在中间分开，之间留出 GAP 像素（图片像素）
+function lineFrames(lines, width, height) {
+  const GAP = 2
+  const frames = lines.map(({ box }) => {
+    const pad = Math.max(1, (box.bottom - box.top) * 0.12)
+    // 不超出图片
+    return { left: Math.max(0, box.left - pad * 1.5), top: Math.max(0, box.top - pad), right: Math.min(width, box.right + pad * 1.5), bottom: Math.min(height, box.bottom + pad) }
+  })
+  for (let i = 0; i < lines.length; i++) {
+    for (let j = i + 1; j < lines.length; j++) {
+      const a = frames[i]
+      const b = frames[j]
+      if (a.left >= b.right + GAP || b.left >= a.right + GAP || a.top >= b.bottom + GAP || b.top >= a.bottom + GAP) continue
+      const ba = lines[i].box
+      const bb = lines[j].box
+      const overlapY = Math.min(ba.bottom, bb.bottom) - Math.max(ba.top, bb.top)
+      if (overlapY > Math.min(ba.bottom - ba.top, bb.bottom - bb.top) / 2) {
+        // 同一行高度上左右相邻
+        const [l, r, bl, br] = ba.left <= bb.left ? [a, b, ba, bb] : [b, a, bb, ba]
+        const mid = (Math.min(bl.right, br.left) + Math.max(bl.right, br.left)) / 2
+        l.right = Math.min(l.right, mid - GAP / 2)
+        r.left = Math.max(r.left, mid + GAP / 2)
+      } else {
+        const [u, d, bu, bd] = ba.top <= bb.top ? [a, b, ba, bb] : [b, a, bb, ba]
+        const mid = (bu.bottom + bd.top) / 2
+        u.bottom = Math.min(u.bottom, mid - GAP / 2)
+        d.top = Math.max(d.top, mid + GAP / 2)
+      }
+    }
+  }
+  return frames
+}
+
 // 由 OCR 结果（每行的文字、位置、字符边界）分词并算出每个块在图片中的位置。
-// 返回 { text, lines, tokens }，块的 box 为相对图片宽高的比例 { x, y, w, h }
+// 返回 { text, lines, lineBoxes, tokens }，块和行的 box 为相对图片宽高的比例 { x, y, w, h }
 function layoutTokens({ width, height, lines }) {
   const text = lines.map((l) => l.text).join('\n')
   const tokens = tokenize(text, 5000)
+  const frames = lineFrames(lines, width, height)
+  let prev = null
   for (const t of tokens) {
     const line = lines[t.line]
-    const { left, top, right, bottom } = line.box
+    const { left, right } = line.box
+    // 词的高度取所在行（已与相邻行分开）的范围，选中时上下连成一片
+    const { top, bottom } = frames[t.line]
     let x0 = Infinity
     let x1 = -Infinity
     const chars = line.chars || []
@@ -80,7 +118,19 @@ function layoutTokens({ width, height, lines }) {
       x0 = left + ((right - left) * before) / total
       x1 = x0 + ((right - left) * own) / total
     }
+    // 不超出所在行的范围（同一高度上左右相邻的块已在中间分开）
+    x0 = Math.max(x0, frames[t.line].left)
+    x1 = Math.min(x1, frames[t.line].right)
+    // 识别出的字符边界偶尔会和前一个词有一两个像素的交叠，在中间分开
+    if (prev && prev.line === t.line && prev.x1 > x0) {
+      const mid = (prev.x1 + x0) / 2
+      prev.t.box.w = Math.max(0, mid / width - prev.t.box.x)
+      x0 = mid
+      x1 = Math.max(x1, mid)
+    }
     t.box = { x: x0 / width, y: top / height, w: (x1 - x0) / width, h: (bottom - top) / height }
+    prev = { t, line: t.line, x1 }
   }
-  return { text, lines: lines.map((l) => l.text), tokens }
+  const lineBoxes = frames.map((f) => ({ x: f.left / width, y: f.top / height, w: (f.right - f.left) / width, h: (f.bottom - f.top) / height }))
+  return { text, lines: lines.map((l) => l.text), lineBoxes, tokens }
 }

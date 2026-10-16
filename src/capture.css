@@ -223,30 +223,35 @@ body[data-ocr-busy] #ocr-layer {
   background: rgba(0, 0, 0, 0.2);
 }
 
-/* 位置按图片比例给出，窗口缩放时自动跟随；四周留出 2px 便于点中 */
+/* 位置按图片比例给出，窗口缩放时自动跟随 */
+/* 行的范围已在分词时留出空白并与相邻行分开 */
+.ocr-line {
+  position: absolute;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.45);
+  pointer-events: none;
+}
+
+/* 相邻的词在图片中紧挨着：词本身不画框，高亮画在内缩的伪元素上，选中的相邻词之间留出细缝 */
 .ocr-tok {
   position: absolute;
-  box-sizing: content-box;
-  margin: -2px;
-  padding: 2px;
-  border-radius: 3px;
-  background: rgba(59, 130, 246, 0.1);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.7);
-  cursor: pointer;
+  cursor: text;
 }
 
-.ocr-tok.punct {
-  background: transparent;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+.ocr-tok::before {
+  content: '';
+  position: absolute;
+  inset: 0 0.5px;
+  border-radius: 2px;
 }
 
-.ocr-tok:hover {
-  background: rgba(59, 130, 246, 0.22);
+.ocr-tok:hover::before {
+  background: rgba(59, 130, 246, 0.2);
 }
 
-.ocr-tok.on {
-  background: rgba(59, 130, 246, 0.42);
-  box-shadow: 0 0 0 1.5px #3b82f6;
+.ocr-tok.on::before {
+  background: rgba(59, 130, 246, 0.4);
 }
 
 #ocr-band {

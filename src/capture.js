@@ -711,7 +711,7 @@ function leaveOcr() {
   S.ocr = null
   ocrDrag = null
   delete document.body.dataset.ocrBusy
-  ocrLayer.querySelectorAll('.ocr-tok').forEach((el) => el.remove())
+  ocrLayer.querySelectorAll('.ocr-tok, .ocr-line').forEach((el) => el.remove())
   setMode('edit')
 }
 
@@ -724,11 +724,12 @@ function showOcr(msg) {
   delete document.body.dataset.ocrBusy
   Object.assign(S.ocr, { busy: false, text: msg.text, lines: msg.lines, tokens: msg.tokens })
   const pct = (v) => (v * 100).toFixed(3) + '%'
+  const pos = (b) => `left:${pct(b.x)};top:${pct(b.y)};width:${pct(b.w)};height:${pct(b.h)}`
+  // 行：淡色底标出识别到文字的位置；词：不画框，悬停、选中时高亮
   ocrLayer.insertAdjacentHTML(
     'beforeend',
-    msg.tokens
-      .map((t, i) => `<div class="ocr-tok${t.punct ? ' punct' : ''}" data-i="${i}" style="left:${pct(t.box.x)};top:${pct(t.box.y)};width:${pct(t.box.w)};height:${pct(t.box.h)}"></div>`)
-      .join('')
+    (msg.lineBoxes || []).map((b) => `<div class="ocr-line" style="${pos(b)}"></div>`).join('') +
+      msg.tokens.map((t, i) => `<div class="ocr-tok${t.punct ? ' punct' : ''}" data-i="${i}" style="${pos(t.box)}"></div>`).join('')
   )
   renderToolbar()
 }
